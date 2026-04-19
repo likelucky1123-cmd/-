@@ -1,0 +1,1620 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  User, Lock, Send, LogOut, MessageSquare, AlertCircle, 
+  Search, ShieldAlert, Image as ImageIcon, X, Edit3, Save, Camera,
+  ChevronLeft, ChevronRight, EyeOff, Eye, ImagePlus, Bookmark, BookmarkCheck, MessageCircle,
+  UserPlus, MessageSquareText, CornerDownRight, Users, Trash2, Plus, Hash, Folder, FolderPlus,
+  Menu, Pin, Ban, ShieldCheck
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, signInAnonymously, onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, collection, doc, setDoc, getDoc, getDocs, addDoc, onSnapshot,
+  updateDoc, deleteDoc
+} from 'firebase/firestore';
+
+// --- 專屬 Firebase 金鑰 ---
+const firebaseConfig = {
+  apiKey: "AIzaSyDKVLVYRGvsiuFmQIXuFCU9O2TBVVRb3gk",
+  authDomain: "popcorn-ee2cc.firebaseapp.com",
+  projectId: "popcorn-ee2cc",
+  storageBucket: "popcorn-ee2cc.firebasestorage.app",
+  messagingSenderId: "1095484888994",
+  appId: "1:1095484888994:web:3d39b271a04d0935b0c4fb",
+  measurementId: "G-N8CGBLE373"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// --- 管理員設定 ---
+const ADMIN_USERNAME = 'likeLucky1123@gmail.com';
+const isAdminUser = (username) => username === ADMIN_USERNAME;
+
+// 工具：產生預設頭像顏色
+const getAvatarColor = (name) => {
+  if (!name) return 'bg-gray-500';
+  const colors = ['bg-red-500', 'bg-orange-500', 'bg-amber-500', 'bg-green-500', 'bg-emerald-500', 'bg-teal-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-violet-500', 'bg-purple-500', 'bg-pink-500', 'bg-rose-500'];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
+};
+
+// 工具：頭像元件
+function UserAvatar({ user, isAnonymous, size = "w-10 h-10", textClass = "text-base", onClick }) {
+  const handleClick = (e) => {
+    if (onClick && !isAnonymous) { e.stopPropagation(); onClick(user?.id); }
+  };
+  const cursorClass = onClick && !isAnonymous ? "cursor-pointer hover:opacity-80 transition-opacity" : "";
+  if (isAnonymous) {
+    return <div className={`${size} rounded-full flex items-center justify-center bg-gray-600 text-white shadow-sm`}><User size={size === 'w-10 h-10' ? 20 : 12} /></div>;
+  }
+  if (user?.avatarImage) {
+    return <img onClick={handleClick} src={user.avatarImage} alt="avatar" className={`${size} rounded-full object-cover shadow-sm border border-gray-100 ${cursorClass}`} />;
+  }
+  const name = user?.displayName || user?.id || '?';
+  return (
+    <div onClick={handleClick} className={`${size} rounded-full flex items-center justify-center text-white font-bold ${getAvatarColor(name)} shadow-sm ${textClass} ${cursorClass}`}>
+      {name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+// 工具：圖片壓縮
+const compressImage = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        let width = img.width, height = img.height;
+        if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; }
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = reject; img.src = event.target.result;
+    };
+    reader.onerror = reject; reader.readAsDataURL(file);
+  });
+};
+
+const formatTime = (timestamp) => {
+  if (!timestamp) return '';
+  return new Date(timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+};
+
+// ==========================================
+// 共用元件：精確貼合的左滑選單
+// ==========================================
+function SwipeableItem({ isOwner, onEdit, onDelete, children, bgClass = "bg-white", roundedClass = "rounded-2xl" }) {
+  const [offset, setOffset] = useState(0);
+  const startPos = useRef(null);
+  const isDragging = useRef(false);
+  const dragDistance = useRef(0);
+
+  const handleStart = (clientX) => {
+    if (!isOwner) return;
+    startPos.current = clientX;
+    isDragging.current = true;
+    dragDistance.current = 0;
+  };
+
+  const handleMove = (clientX) => {
+    if (!isDragging.current || startPos.current === null) return;
+    const diff = clientX - startPos.current;
+    dragDistance.current = diff;
+    if (diff < 0) setOffset(Math.max(diff, -140)); 
+    else if (offset < 0) setOffset(Math.min(0, offset + diff));
+  };
+
+  const handleEnd = () => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    startPos.current = null;
+    if (offset < -70) setOffset(-140);
+    else setOffset(0);
+  };
+
+  return (
+    <div className={`relative overflow-hidden w-full group flex ${roundedClass}`}>
+      {isOwner && (
+        <div className={`absolute top-0 right-0 h-full flex z-0 w-[140px] ${roundedClass} overflow-hidden`}>
+          <button onClick={(e) => { e.stopPropagation(); setOffset(0); onEdit(); }} className="flex-1 bg-blue-500 text-white flex flex-col items-center justify-center font-bold text-sm hover:bg-blue-600 transition-colors">
+            <Edit3 size={18} className="mb-1" />編輯
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); setOffset(0); onDelete(); }} className="flex-1 bg-red-500 text-white flex flex-col items-center justify-center font-bold text-sm hover:bg-red-600 transition-colors">
+            <Trash2 size={18} className="mb-1" />刪除
+          </button>
+        </div>
+      )}
+      <div 
+        className={`relative z-10 w-full transition-transform duration-200 ease-out flex ${bgClass} ${roundedClass}`}
+        style={{ transform: `translateX(${offset}px)` }}
+        onTouchStart={e => handleStart(e.touches[0].clientX)}
+        onTouchMove={e => handleMove(e.touches[0].clientX)}
+        onTouchEnd={handleEnd}
+        onMouseDown={e => handleStart(e.clientX)}
+        onMouseMove={e => handleMove(e.clientX)}
+        onMouseUp={handleEnd}
+        onMouseLeave={handleEnd}
+        onClickCapture={(e) => {
+          if (Math.abs(dragDistance.current) > 10 || offset === -140) {
+            e.stopPropagation();
+            if (offset === -140 && Math.abs(dragDistance.current) < 10) setOffset(0);
+          }
+        }}
+      >
+        <div className="w-full relative flex-shrink-0">
+          {children}
+          {offset !== 0 && (
+            <div className="absolute inset-0 z-20" onClick={(e) => { e.stopPropagation(); setOffset(0); }} onTouchEnd={(e) => { e.stopPropagation(); setOffset(0); }}/>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 共用元件：全螢幕看圖 (Lightbox)
+// ==========================================
+function ImageViewer({ images, initialIndex, onClose }) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [touchStart, setTouchStart] = useState(null);
+
+  const handlePrev = (e) => { e?.stopPropagation(); setCurrentIndex((prev) => (prev > 0 ? prev - 1 : images.length - 1)); };
+  const handleNext = (e) => { e?.stopPropagation(); setCurrentIndex((prev) => (prev < images.length - 1 ? prev + 1 : 0)); };
+  
+  const onTouchStart = (e) => setTouchStart(e.touches[0].clientX);
+  const onTouchEnd = (e) => {
+    if (!touchStart) return;
+    const distance = touchStart - e.changedTouches[0].clientX;
+    if (distance > 50) handleNext();
+    if (distance < -50) handlePrev();
+    setTouchStart(null);
+  };
+
+  if (!images || images.length === 0) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black bg-opacity-95 flex items-center justify-center" onClick={onClose}>
+      <button onClick={onClose} className="absolute top-4 right-4 text-white hover:text-gray-300 p-2 z-10 bg-black bg-opacity-50 rounded-full"><X size={28} /></button>
+      {images.length > 1 && <button onClick={handlePrev} className="absolute left-2 sm:left-6 text-white hover:text-gray-300 p-2 bg-black bg-opacity-50 rounded-full z-10"><ChevronLeft size={32} /></button>}
+      <div className="w-full h-full flex items-center justify-center p-2 sm:p-8" onClick={(e) => e.stopPropagation()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        <img src={images[currentIndex]} className="max-w-full max-h-full object-contain select-none" draggable="false" />
+      </div>
+      {images.length > 1 && <button onClick={handleNext} className="absolute right-2 sm:right-6 text-white hover:text-gray-300 p-2 bg-black bg-opacity-50 rounded-full z-10"><ChevronRight size={32} /></button>}
+      {images.length > 1 && (
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center space-x-2 pointer-events-none">
+          {images.map((_, idx) => <div key={idx} className={`w-2 h-2 rounded-full ${idx === currentIndex ? 'bg-white' : 'bg-gray-500'}`} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 共用元件：勸世文獨立編輯表單
+// ==========================================
+function EditWarningForm({ initialData, onCancel, onSave }) {
+  const [targetName, setTargetName] = useState(initialData.targetName || '');
+  const [platform, setPlatform] = useState(initialData.platform || '');
+  const [item, setItem] = useState(initialData.item || '');
+  const [reason, setReason] = useState(initialData.reason || '');
+  const [evidenceText, setEvidenceText] = useState(initialData.evidenceText || '');
+  const [evidenceImages, setEvidenceImages] = useState(initialData.evidenceImages || []);
+  const fileInputRef = useRef(null);
+
+  const handleImagesUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (evidenceImages.length + files.length > 4) return alert('最多附上 4 張證據照片');
+    try {
+      const processed = await Promise.all(files.map(f => compressImage(f)));
+      setEvidenceImages(prev => [...prev, ...processed]);
+    } catch(err){}
+    if(fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({ targetName, platform, item, reason, evidenceText, evidenceImages });
+  };
+
+  return (
+    <form className="flex flex-col h-full flex-1" onSubmit={handleSubmit}>
+      <div className="space-y-4 sm:space-y-6 flex-1">
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1 sm:mb-2">要爆黑誰？ *</label>
+          <input value={targetName} onChange={e => setTargetName(e.target.value)} className="w-full border border-gray-300 p-3 sm:p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-400 text-base sm:text-lg" required />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1 sm:mb-2">交易平台</label>
+            <input value={platform} onChange={e => setPlatform(e.target.value)} className="w-full border border-gray-300 p-3 sm:p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-400 text-base sm:text-lg" placeholder="如：Facebook"/>
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1 sm:mb-2">交易物品</label>
+            <input value={item} onChange={e => setItem(e.target.value)} className="w-full border border-gray-300 p-3 sm:p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-400 text-base sm:text-lg" placeholder="如：演唱會門票"/>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-gray-700 mb-1 sm:mb-2">為什麼？ *</label>
+          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={5} className="w-full border border-gray-300 p-3 sm:p-4 rounded-2xl outline-none focus:ring-2 focus:ring-blue-400 resize-none text-base sm:text-lg" required />
+        </div>
+        <div>
+          <label className="text-sm font-bold text-gray-700 mb-1 sm:mb-2 flex items-center">
+            證據是⋯⋯？ <span className="text-xs text-red-500 ml-2">(最多4張)</span>
+          </label>
+          <textarea value={evidenceText} onChange={e => setEvidenceText(e.target.value)} rows={2} className="w-full border border-gray-300 p-3 sm:p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-400 mb-3 resize-none text-base sm:text-lg" placeholder="補充文字證據或連結..."/>
+          <div className="flex flex-col">
+            <button type="button" onClick={() => fileInputRef.current?.click()} className="self-start flex items-center px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-2xl text-sm font-bold transition-colors">
+              <ImagePlus size={18} className="mr-2" /> 附加照片 <span className="text-xs text-gray-500 ml-1">(上限4張)</span>
+            </button>
+            <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleImagesUpload} className="hidden" />
+            {evidenceImages.length > 0 && (
+              <div className="flex gap-3 mt-4 flex-wrap">
+                {evidenceImages.map((img, idx) => (
+                  <div key={idx} className="relative w-16 h-16 sm:w-20 sm:h-20 border rounded-2xl overflow-hidden shadow-sm">
+                    <img src={img} className="w-full h-full object-cover" />
+                    <button type="button" onClick={() => setEvidenceImages(prev=>prev.filter((_,i)=>i!==idx))} className="absolute top-0 right-0 bg-red-500 text-white rounded-bl-2xl p-1.5"><X size={14}/></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="flex space-x-4 mt-6 pt-4 border-t border-gray-100">
+        <button type="button" onClick={onCancel} className="flex-1 bg-gray-100 text-gray-700 font-bold py-3.5 rounded-2xl text-base sm:text-lg hover:bg-gray-200 transition-colors">取消</button>
+        <button type="submit" className="flex-1 bg-blue-500 text-white font-bold py-3.5 rounded-2xl text-base sm:text-lg shadow-md hover:bg-blue-600 transition-colors">儲存變更</button>
+      </div>
+    </form>
+  );
+}
+
+// ==========================================
+// 主應用程式入口
+// ==========================================
+export default function App() {
+  const [fbUser, setFbUser] = useState(null);
+  const [appUser, setAppUser] = useState(null); 
+  const [currentView, setCurrentView] = useState('login'); 
+  const [isLoading, setIsLoading] = useState(true);
+  const [authError, setAuthError] = useState(''); 
+
+  useEffect(() => {
+    let isMounted = true;
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!isMounted) return;
+      if (user) {
+        setFbUser(user);
+        setIsLoading(false);
+      } else {
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error("Firebase Auth Error:", error);
+          if (isMounted) { setAuthError(error.message); setIsLoading(false); }
+        }
+      }
+    });
+    return () => { isMounted = false; unsubscribe(); };
+  }, []);
+
+  if (authError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-4">
+         <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl text-center max-w-md w-full border border-gray-100">
+           <AlertCircle size={56} className="mx-auto text-red-500 mb-4" />
+           <h2 className="text-2xl font-bold text-gray-800 mb-3">Firebase 連線被拒絕</h2>
+           <p className="text-gray-600 text-sm mb-4 leading-relaxed font-medium">
+             這通常是因為您的 Firebase 專案 <strong>尚未啟用「匿名登入 (Anonymous)」</strong>。<br/><br/>
+             請前往 Firebase Console 的 Authentication (驗證) 設定，將 Sign-in method 中的 Anonymous 開啟並儲存。
+           </p>
+         </div>
+      </div>
+    );
+  }
+
+  if (isLoading || !fbUser) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-yellow-50 text-yellow-600">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-yellow-500 mb-4"></div>
+      <span className="font-bold text-lg tracking-widest animate-pulse">連線中...</span>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans">
+      {currentView === 'login' && <LoginView onLogin={(u) => { setAppUser(u); setCurrentView('main'); }} onGoRegister={() => setCurrentView('register')} />}
+      {currentView === 'register' && <RegisterView onRegisterSuccess={() => setCurrentView('login')} onGoLogin={() => setCurrentView('login')} />}
+      {currentView === 'main' && <MainLayout username={appUser} onLogout={() => { setAppUser(null); setCurrentView('login'); }} fbUser={fbUser} />}
+    </div>
+  );
+}
+
+// ==========================================
+// 1. 登入與註冊
+// ==========================================
+function LoginView({ onLogin, onGoRegister }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!username.trim() || !password) return setError('請輸入帳號與密碼');
+    setIsSubmitting(true);
+    try {
+      const userSnap = await getDoc(doc(db, 'appUsers', username.trim()));
+      if (userSnap.exists() && userSnap.data().password === password) onLogin(username.trim());
+      else setError('帳號不存在或密碼錯誤。');
+    } catch (err) { setError('資料庫存取失敗，請確認 Firestore 規則已開放。'); } 
+    finally { setIsSubmitting(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-yellow-50">
+      <div className="max-w-sm w-full bg-white rounded-3xl shadow-lg p-8 sm:p-10 transform transition-all">
+        <div className="text-center mb-8">
+          <div className="bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-600 shadow-sm"><MessageSquare size={30} /></div>
+          <h2 className="text-2xl sm:text-3xl font-black text-gray-800">歡迎回來</h2>
+          <p className="text-gray-500 mt-2 text-sm sm:text-base font-medium">登入以繼續使用廣場與勸世系統</p>
+        </div>
+        {error && <div className="bg-red-50 text-red-600 p-3 rounded-2xl flex items-center mb-6 text-sm font-bold border border-red-100"><AlertCircle size={18} className="mr-2 flex-shrink-0" />{error}</div>}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div className="relative"><User size={18} className="absolute left-4 top-3.5 text-gray-400" /><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full pl-11 pr-4 py-3 border border-gray-200 bg-gray-50 rounded-2xl focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none transition-all font-medium text-base" placeholder="帳號" disabled={isSubmitting} /></div>
+          <div className="relative"><Lock size={18} className="absolute left-4 top-3.5 text-gray-400" /><input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full pl-11 pr-4 py-3 border border-gray-200 bg-gray-50 rounded-2xl focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none transition-all font-medium text-base" placeholder="密碼" disabled={isSubmitting} /></div>
+          <button type="submit" disabled={isSubmitting} className="w-full text-white py-3 rounded-2xl font-bold text-lg bg-yellow-500 hover:bg-yellow-600 transition-colors shadow-md mt-2">{isSubmitting ? '登入中...' : '安全登入'}</button>
+        </form>
+        <div className="mt-8 text-center text-sm text-gray-600 font-medium">還沒有帳號嗎？ <button onClick={onGoRegister} className="text-yellow-600 font-bold hover:underline">立即註冊</button></div>
+      </div>
+    </div>
+  );
+}
+
+function RegisterView({ onRegisterSuccess, onGoLogin }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    const safeUsername = username.trim();
+    if (!safeUsername || !password || !confirmPassword) return setError('請填寫所有欄位');
+    if (safeUsername.length < 3) return setError('帳號至少 3 個字元');
+    if (password !== confirmPassword) return setError('兩次密碼不一致');
+    
+    setIsSubmitting(true);
+    try {
+      const userRef = doc(db, 'appUsers', safeUsername);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) { setIsSubmitting(false); return setError('此帳號已被使用。'); }
+      
+      const usersSnap = await getDocs(collection(db, 'appUsers'));
+      const isDuplicateName = usersSnap.docs.some(d => d.data().displayName === safeUsername);
+      if (isDuplicateName) { setIsSubmitting(false); return setError('此用戶名已被使用，請更改。'); }
+      
+      await setDoc(userRef, { password, displayName: safeUsername, joinedZones: ['世界'], savedFolders: ['預設收藏夾'], pinnedUsers: [], blockedUsers: [], createdAt: Date.now() });
+      onRegisterSuccess();
+    } catch (err) { setError('系統錯誤或權限不足。'); setIsSubmitting(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 bg-yellow-50">
+      <div className="max-w-sm w-full bg-white rounded-3xl shadow-lg p-8 sm:p-10 transition-all">
+        <div className="text-center mb-8"><h2 className="text-2xl sm:text-3xl font-black text-gray-800">建立新帳號</h2><p className="text-gray-500 mt-2 text-sm sm:text-base font-medium">只需幾秒鐘即可加入我們</p></div>
+        {error && <div className="bg-red-50 text-red-600 p-3 rounded-2xl flex items-center mb-6 text-sm font-bold border border-red-100"><AlertCircle size={18} className="mr-2 flex-shrink-0" />{error}</div>}
+        <form onSubmit={handleRegister} className="space-y-4">
+          <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none font-medium text-base transition-all" placeholder="設定帳號 (將為初始名稱)" disabled={isSubmitting} />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none font-medium text-base transition-all" placeholder="設定密碼 (至少6字元)" disabled={isSubmitting} />
+          <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none font-medium text-base transition-all" placeholder="確認密碼" disabled={isSubmitting} />
+          <button type="submit" disabled={isSubmitting} className="w-full text-white py-3 rounded-2xl font-bold text-lg bg-yellow-500 hover:bg-yellow-600 shadow-md transition-colors mt-2">
+            {isSubmitting ? '處理中...' : '完成註冊'}
+          </button>
+        </form>
+        <div className="mt-8 text-center text-sm font-medium text-gray-600">已經有帳號了？ <button onClick={onGoLogin} className="text-yellow-600 font-bold hover:underline" disabled={isSubmitting}>返回登入</button></div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 2. 系統主框架
+// ==========================================
+function MainLayout({ username, onLogout, fbUser }) {
+  const [currentTab, setCurrentTab] = useState('square');
+  const [isNavOpen, setIsNavOpen] = useState(false); 
+  const [usersMap, setUsersMap] = useState({}); 
+  
+  const [isProfileEditing, setIsProfileEditing] = useState(false); 
+  const [viewingUser, setViewingUser] = useState(null); 
+  const [activeChatUser, setActiveChatUser] = useState(null); 
+  
+  const [lightboxData, setLightboxData] = useState({ isOpen: false, images: [], initialIndex: 0 });
+  const [posts, setPosts] = useState([]);
+  const [savedPostsMap, setSavedPostsMap] = useState({}); 
+  const [savingPostId, setSavingPostId] = useState(null); 
+
+  const [friendships, setFriendships] = useState([]);
+  const [allZones, setAllZones] = useState([]); 
+  const [allChatMessages, setAllChatMessages] = useState([]);
+
+  const [deleteTarget, setDeleteTarget] = useState(null); 
+  const [editTarget, setEditTarget] = useState(null); 
+
+  useEffect(() => {
+    if (!fbUser) return;
+    const unsubUsers = onSnapshot(collection(db, 'appUsers'), (snapshot) => {
+      const map = {}; snapshot.docs.forEach(doc => { map[doc.id] = { id: doc.id, ...doc.data() }; }); setUsersMap(map);
+    }, err => console.error("usersMap error:", err));
+
+    const unsubPosts = onSnapshot(collection(db, 'posts'), (snapshot) => {
+      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp));
+    }, err => console.error("posts error:", err));
+
+    const unsubSaved = onSnapshot(collection(db, 'users', fbUser.uid, 'savedPosts'), (snapshot) => {
+      const map = {}; snapshot.docs.forEach(doc => { map[doc.id] = doc.data(); }); setSavedPostsMap(map);
+    }, err => console.error("saved error:", err));
+
+    const unsubFS = onSnapshot(collection(db, 'friendships'), (snapshot) => {
+      setFriendships(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, err => console.error("fs error:", err));
+
+    const unsubZone = onSnapshot(collection(db, 'zones'), (snapshot) => {
+      setAllZones(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, err => console.error("zone error:", err));
+
+    const unsubChat = onSnapshot(collection(db, 'chatMessages'), (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllChatMessages(msgs.filter(m => m.chatId && m.chatId.includes(username)));
+    }, err => console.error("chat error:", err));
+
+    return () => { unsubUsers(); unsubPosts(); unsubSaved(); unsubFS(); unsubZone(); unsubChat(); };
+  }, [fbUser, username]);
+
+  const currentUserData = usersMap[username] || { id: username, displayName: username, joinedZones: ['世界'], savedFolders: ['預設收藏夾'], pinnedUsers: [], blockedUsers: [] };
+  const displayName = currentUserData.displayName || username;
+  const userFolders = currentUserData.savedFolders || ['預設收藏夾'];
+  const pinnedUsers = currentUserData.pinnedUsers || [];
+  const blockedUsers = currentUserData.blockedUsers || [];
+
+  const visiblePosts = posts.filter(p => !blockedUsers.includes(p.author));
+  const totalUnreadCount = allChatMessages.filter(m => m.sender !== username && !m.isRead && !blockedUsers.includes(m.sender)).length;
+
+  const handleTogglePin = async (targetId) => {
+    const newPinned = pinnedUsers.includes(targetId) ? pinnedUsers.filter(id => id !== targetId) : [...pinnedUsers, targetId];
+    await updateDoc(doc(db, 'appUsers', username), { pinnedUsers: newPinned });
+  };
+
+  const handleToggleBlock = async (targetId) => {
+    const newBlocked = blockedUsers.includes(targetId) ? blockedUsers.filter(id => id !== targetId) : [...blockedUsers, targetId];
+    await updateDoc(doc(db, 'appUsers', username), { blockedUsers: newBlocked });
+    if (activeChatUser === targetId && !blockedUsers.includes(targetId)) setActiveChatUser(null);
+  };
+
+  const handleSavePost = async (postId, folderName) => {
+    await setDoc(doc(db, 'users', fbUser.uid, 'savedPosts', postId), { folderName, savedAt: Date.now() });
+    setSavingPostId(null);
+  };
+  const handleUnsavePost = async (postId) => {
+    await deleteDoc(doc(db, 'users', fbUser.uid, 'savedPosts', postId));
+    setSavingPostId(null);
+  };
+  const handleCreateFolder = async (folderName) => {
+    if (userFolders.includes(folderName)) return;
+    const newFolders = [...userFolders, folderName];
+    await updateDoc(doc(db, 'appUsers', username), { savedFolders: newFolders });
+  };
+
+  const handleGlobalDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (deleteTarget.collectionName === 'chatMessages') {
+        await updateDoc(doc(db, deleteTarget.collectionName, deleteTarget.id), { isDeleted: true, text: '此訊息已刪除', content: '' });
+      } else if (deleteTarget.collectionName === 'folders') {
+        const folderName = deleteTarget.id;
+        const newFolders = userFolders.filter(f => f !== folderName);
+        await updateDoc(doc(db, 'appUsers', username), { savedFolders: newFolders });
+        const deletes = [];
+        Object.keys(savedPostsMap).forEach(postId => {
+          if (savedPostsMap[postId].folderName === folderName) deletes.push(deleteDoc(doc(db, 'users', fbUser.uid, 'savedPosts', postId)));
+        });
+        await Promise.all(deletes);
+      } else {
+        await deleteDoc(doc(db, deleteTarget.collectionName, deleteTarget.id));
+      }
+    } catch (err) {}
+    setDeleteTarget(null);
+  };
+
+  const handleGlobalEdit = async (newContentData) => {
+    if (!editTarget) return;
+    try {
+      if (editTarget.collectionName === 'folders') {
+        const oldName = editTarget.id;
+        const newName = newContentData.newName.trim();
+        if (!newName || newName === oldName || userFolders.includes(newName)) { setEditTarget(null); return; }
+        const newFolders = userFolders.map(f => f === oldName ? newName : f);
+        await updateDoc(doc(db, 'appUsers', username), { savedFolders: newFolders });
+        const updates = [];
+        Object.keys(savedPostsMap).forEach(postId => {
+          if (savedPostsMap[postId].folderName === oldName) updates.push(updateDoc(doc(db, 'users', fbUser.uid, 'savedPosts', postId), { folderName: newName }));
+        });
+        await Promise.all(updates);
+      } else {
+        const isAdminEdited = editTarget.author !== username;
+        const updateData = { ...newContentData, isEdited: true };
+        if (isAdminEdited) updateData.isAdminEdited = true;
+        else updateData.isAdminEdited = false;
+        await updateDoc(doc(db, editTarget.collectionName, editTarget.id), updateData);
+      }
+    } catch (err) { alert('儲存失敗'); }
+    setEditTarget(null);
+  };
+
+  const getTabTitle = () => {
+    switch (currentTab) {
+      case 'square': return '廣場看板';
+      case 'warning': return '勸世專區';
+      case 'saved': return '收藏庫';
+      case 'chat': return '私密聊天';
+      default: return '首頁';
+    }
+  };
+
+  const NavButton = ({ tab, icon, label, badge }) => (
+    <button 
+      onClick={() => { setCurrentTab(tab); setIsNavOpen(false); }} 
+      className={`flex items-center justify-between w-full px-5 py-4 rounded-2xl font-bold transition-colors ${currentTab === tab ? 'bg-yellow-500 text-white shadow-md' : 'text-gray-600 hover:bg-yellow-50'}`}
+    >
+      <div className="flex items-center space-x-3">{icon} <span className="text-base">{label}</span></div>
+      {badge > 0 && <span className={`text-xs px-2 py-0.5 rounded-full font-black ${currentTab === tab ? 'bg-white text-red-500' : 'bg-red-500 text-white'}`}>{badge > 99 ? '99+' : badge}</span>}
+    </button>
+  );
+
+  return (
+    <div className="flex flex-col h-screen max-w-4xl mx-auto bg-slate-50 md:border-x border-gray-200 shadow-2xl relative overflow-hidden">
+      
+      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-sm">
+        <div className="flex items-center min-w-0">
+          <div className="relative">
+            <button onClick={() => setIsNavOpen(true)} className="p-2 -ml-2 mr-2 text-gray-700 hover:bg-gray-100 rounded-2xl transition-colors flex-shrink-0">
+              <Menu size={28} />
+            </button>
+            {totalUnreadCount > 0 && <span className="absolute top-1.5 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white pointer-events-none"></span>}
+          </div>
+          <h1 className="font-bold text-xl text-gray-800 tracking-wide truncate">{getTabTitle()}</h1>
+        </div>
+
+        <div className="flex items-center flex-shrink-0 ml-4">
+          <button onClick={() => setIsProfileEditing(true)} className="flex items-center space-x-2 bg-gray-50 hover:bg-yellow-50 border border-gray-200 hover:border-yellow-200 px-2 sm:px-3 py-1.5 rounded-full transition-colors max-w-[120px] sm:max-w-[200px]">
+            <UserAvatar user={currentUserData} size="w-8 h-8" textClass="text-xs" />
+            <span className="text-sm font-bold text-gray-700 truncate">{displayName}</span>
+            {isAdminUser(username) && <ShieldCheck size={14} className="text-blue-500 flex-shrink-0 ml-1" title="管理員"/>}
+          </button>
+        </div>
+      </header>
+
+      {/* 左側抽屜選單 */}
+      {isNavOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 bg-black/50 transition-opacity" onClick={() => setIsNavOpen(false)} />
+          <div className="relative w-64 sm:w-72 bg-white h-full shadow-2xl flex flex-col z-50 animate-in slide-in-from-left">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-yellow-50">
+              <h2 className="font-bold text-lg text-yellow-700 flex items-center"><MessageSquare className="mr-2" size={20}/> 選單</h2>
+              <button onClick={() => setIsNavOpen(false)} className="p-2 bg-white rounded-full text-gray-500 hover:text-red-500 shadow-sm"><X size={18}/></button>
+            </div>
+            <div className="p-4 flex flex-col space-y-2 mt-2">
+              <NavButton tab="square" icon={<Hash size={20}/>} label="廣場看板" />
+              <NavButton tab="warning" icon={<ShieldAlert size={20}/>} label="勸世專區" />
+              <NavButton tab="saved" icon={<Bookmark size={20}/>} label="我的收藏" />
+              <NavButton tab="chat" icon={<MessageSquareText size={20}/>} label="私密聊天" badge={totalUnreadCount} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 主要內容 */}
+      <div className="flex-1 overflow-hidden relative">
+        {currentTab === 'square' && <SquareView username={username} userData={currentUserData} usersMap={usersMap} fbUser={fbUser} allZones={allZones} posts={visiblePosts} savedPostsMap={savedPostsMap} onSaveClick={(id)=>setSavingPostId(id)} onOpenLightbox={(i,x)=>setLightboxData({isOpen:true,images:i,initialIndex:x})} onUserClick={u => u===username ? setIsProfileEditing(true) : setViewingUser(u)} onSwipeEdit={(id, content, author) => setEditTarget({collectionName: 'posts', id, content, type: 'text', author})} onSwipeDelete={(id) => setDeleteTarget({collectionName: 'posts', id})} blockedUsers={blockedUsers} />}
+        {currentTab === 'warning' && <WarningView username={username} usersMap={usersMap} fbUser={fbUser} onOpenLightbox={(i,x)=>setLightboxData({isOpen:true,images:i,initialIndex:x})} onUserClick={u => u===username ? setIsProfileEditing(true) : setViewingUser(u)} onSwipeEdit={(id, targetName, platform, item, reason, evidenceText, evidenceImages, author) => setEditTarget({collectionName: 'warnings', id, content: {targetName, platform, item, reason, evidenceText, evidenceImages}, type: 'warning', author})} onSwipeDelete={(id) => setDeleteTarget({collectionName: 'warnings', id})} blockedUsers={blockedUsers} />}
+        {currentTab === 'saved' && <SavedView username={username} usersMap={usersMap} fbUser={fbUser} posts={visiblePosts} savedPostsMap={savedPostsMap} userFolders={userFolders} onOpenLightbox={(i,x)=>setLightboxData({isOpen:true,images:i,initialIndex:x})} onUserClick={u => u===username ? setIsProfileEditing(true) : setViewingUser(u)} onUnsave={handleUnsavePost} onSwipeEditFolder={(folder)=>setEditTarget({collectionName:'folders', id: folder, content: folder, type: 'folder', author: username})} onSwipeDeleteFolder={(folder)=>setDeleteTarget({collectionName: 'folders', id: folder})} blockedUsers={blockedUsers} />}
+        {currentTab === 'chat' && <ChatLayout username={username} usersMap={usersMap} fbUser={fbUser} friendships={friendships} activeChatUser={activeChatUser} setActiveChatUser={setActiveChatUser} onUserClick={u => u===username ? setIsProfileEditing(true) : setViewingUser(u)} onSwipeEdit={(id, content, author) => setEditTarget({collectionName: 'chatMessages', id, content, type: 'text', author})} onSwipeDelete={(id) => setDeleteTarget({collectionName: 'chatMessages', id})} pinnedUsers={pinnedUsers} blockedUsers={blockedUsers} allChatMessages={allChatMessages} />}
+      </div>
+
+      {isProfileEditing && <div className="fixed inset-0 z-40 bg-white"><ProfileView username={username} userData={currentUserData} usersMap={usersMap} onLogout={onLogout} onClose={() => setIsProfileEditing(false)} /></div>}
+      
+      {viewingUser && <UserInfoModal targetUsername={viewingUser} username={username} usersMap={usersMap} friendships={friendships} onClose={() => setViewingUser(null)} onGoChat={u => {setViewingUser(null); setActiveChatUser(u); setCurrentTab('chat');}} pinnedUsers={pinnedUsers} blockedUsers={blockedUsers} onTogglePin={handleTogglePin} onToggleBlock={handleToggleBlock} fbUser={fbUser} />}
+      
+      {lightboxData.isOpen && <ImageViewer images={lightboxData.images} initialIndex={lightboxData.initialIndex} onClose={() => setLightboxData({ isOpen: false, images: [], initialIndex: 0 })} />}
+      {savingPostId && <SavePostModal postId={savingPostId} currentSavedData={savedPostsMap[savingPostId]} userFolders={userFolders} onClose={() => setSavingPostId(null)} onSave={handleSavePost} onUnsave={handleUnsavePost} onCreateFolder={handleCreateFolder} />}
+
+      {/* 刪除確認 Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <AlertCircle size={56} className="mx-auto text-red-500 mb-4" />
+            <h3 className="text-2xl font-bold mb-2 text-gray-800">是否確認刪除？</h3>
+            {deleteTarget.collectionName === 'folders' && <p className="text-sm text-gray-500 mb-6">此資料夾內的所有收藏紀錄也將一併移除。</p>}
+            <div className={`flex space-x-3 ${deleteTarget.collectionName !== 'folders' ? 'mt-8' : ''}`}>
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-2xl transition-colors text-base sm:text-lg">再想想</button>
+              <button onClick={handleGlobalDelete} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3.5 rounded-2xl transition-colors text-base sm:text-lg shadow-md">確認刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 整頁顯示的編輯視窗 */}
+      {editTarget && (
+        <div className="fixed inset-0 z-[100] bg-slate-50 flex flex-col h-full overflow-hidden animate-in slide-in-from-bottom-2">
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm flex-shrink-0">
+            <div className="flex items-center">
+              <button onClick={() => setEditTarget(null)} className="mr-3 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">
+                <ChevronLeft size={24} />
+              </button>
+              <h3 className="font-bold text-gray-800 text-xl flex items-center"><Edit3 className="mr-2 text-blue-500" size={24}/> 編輯內容</h3>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 sm:p-8 h-full min-h-[60vh] flex flex-col">
+              {editTarget.type === 'text' && (
+                <form className="flex flex-col h-full flex-1" onSubmit={(e) => { e.preventDefault(); handleGlobalEdit({ [editTarget.collectionName === 'chatMessages' ? 'text' : 'content']: e.target.content.value }); }}>
+                  <textarea name="content" defaultValue={editTarget.content} className="flex-1 w-full border border-gray-300 rounded-2xl p-5 focus:ring-2 focus:ring-blue-400 outline-none resize-none mb-6 text-lg" placeholder="請輸入內容..." />
+                  <div className="flex space-x-4 mt-auto pt-4 border-t border-gray-100">
+                    <button type="button" onClick={() => setEditTarget(null)} className="flex-1 bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-base sm:text-lg hover:bg-gray-200 transition-colors">取消</button>
+                    <button type="submit" className="flex-1 bg-blue-500 text-white font-bold py-4 rounded-2xl text-base sm:text-lg shadow-md hover:bg-blue-600 transition-colors">儲存變更</button>
+                  </div>
+                </form>
+              )}
+              {editTarget.type === 'warning' && (
+                <EditWarningForm initialData={editTarget.content} onCancel={() => setEditTarget(null)} onSave={(data) => handleGlobalEdit(data)} />
+              )}
+              {editTarget.type === 'folder' && (
+                <form className="flex flex-col h-full flex-1" onSubmit={(e) => { e.preventDefault(); handleGlobalEdit({ newName: e.target.newName.value }); }}>
+                  <div className="flex-1">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">資料夾名稱</label>
+                    <input name="newName" defaultValue={editTarget.content} className="w-full border border-gray-300 rounded-2xl p-4 focus:ring-2 focus:ring-blue-400 outline-none text-lg" placeholder="新資料夾名稱" />
+                  </div>
+                  <div className="flex space-x-4 mt-auto pt-4 border-t border-gray-100">
+                    <button type="button" onClick={() => setEditTarget(null)} className="flex-1 bg-gray-100 text-gray-700 font-bold py-4 rounded-2xl text-base sm:text-lg hover:bg-gray-200 transition-colors">取消</button>
+                    <button type="submit" className="flex-1 bg-blue-500 text-white font-bold py-4 rounded-2xl text-base sm:text-lg shadow-md hover:bg-blue-600 transition-colors">儲存變更</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 獨立 Modal：儲存至收藏夾
+// ==========================================
+function SavePostModal({ postId, currentSavedData, userFolders, onClose, onSave, onUnsave, onCreateFolder }) {
+  const [newFolderName, setNewFolderName] = useState('');
+  const handleCreate = (e) => {
+    e.preventDefault();
+    if (newFolderName.trim()) { onCreateFolder(newFolderName.trim()); setNewFolderName(''); }
+  };
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-6 relative shadow-2xl flex flex-col max-h-[80vh] animate-in slide-in-from-bottom-2 sm:zoom-in-95" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200"><X size={20} /></button>
+        <h2 className="text-xl font-bold mb-4 flex items-center"><Bookmark className="mr-2 text-blue-500"/> 選擇收藏夾</h2>
+        <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+          {userFolders.map(folder => {
+            const isCurrent = currentSavedData?.folderName === folder;
+            return (
+              <button key={folder} onClick={() => onSave(postId, folder)} className={`w-full p-4 rounded-2xl border flex items-center justify-between transition-colors ${isCurrent ? 'bg-blue-50 border-blue-200 text-blue-800 font-bold' : 'bg-white border-gray-100 hover:bg-gray-50 text-gray-700'}`}>
+                <span className="flex items-center font-bold"><Folder size={18} className="mr-2 text-gray-400" /> {folder}</span>
+                {isCurrent && <BookmarkCheck size={20} className="text-blue-500" />}
+              </button>
+            );
+          })}
+        </div>
+        <form onSubmit={handleCreate} className="flex space-x-2 border-t pt-4">
+          <input type="text" value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="新增自訂收藏夾..." className="flex-1 bg-gray-100 px-4 py-2.5 rounded-2xl focus:ring-2 focus:ring-blue-400 outline-none font-bold" />
+          <button type="submit" disabled={!newFolderName.trim()} className="bg-blue-500 text-white px-4 py-2.5 rounded-2xl font-bold disabled:opacity-50"><FolderPlus size={20}/></button>
+        </form>
+        {currentSavedData && <button onClick={() => onUnsave(postId)} className="w-full mt-4 bg-red-50 text-red-600 font-bold py-3 rounded-2xl hover:bg-red-100 transition-colors">取消收藏此文章</button>}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 3. 廣場功能 
+// ==========================================
+function SquareView({ username, userData, usersMap, fbUser, allZones, posts, savedPostsMap, onSaveClick, onOpenLightbox, onUserClick, onSwipeEdit, onSwipeDelete, blockedUsers }) {
+  const [selectedPost, setSelectedPost] = useState(null); 
+  const [content, setContent] = useState('');
+  const [images, setImages] = useState([]);
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  const joinedZones = userData.joinedZones || ['世界'];
+  const [currentZone, setCurrentZone] = useState('世界');
+  const [showZoneModal, setShowZoneModal] = useState(false);
+
+  const filteredPosts = currentZone === '世界' ? posts : posts.filter(p => (p.zone || '世界') === currentZone);
+
+  if (selectedPost) {
+    return <PostDetailView post={selectedPost} onBack={() => setSelectedPost(null)} fbUser={fbUser} username={username} usersMap={usersMap} onOpenLightbox={onOpenLightbox} savedPostsMap={savedPostsMap} onSaveClick={onSaveClick} onUserClick={onUserClick} onSwipeEdit={onSwipeEdit} onSwipeDelete={onSwipeDelete} blockedUsers={blockedUsers} />;
+  }
+
+  const handleImagesUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (images.length + files.length > 4) return alert('最多上傳 4 張照片喔！');
+    setIsPosting(true);
+    try {
+      const processed = await Promise.all(files.map(f => compressImage(f)));
+      setImages(prev => [...prev, ...processed]);
+    } catch (err) { } finally { setIsPosting(false); if(fileInputRef.current) fileInputRef.current.value = ''; }
+  };
+
+  const handlePost = async (e) => {
+    e.preventDefault();
+    if ((!content.trim() && images.length === 0) || !fbUser || isPosting) return;
+    setIsPosting(true);
+    try {
+      await addDoc(collection(db, 'posts'), { author: username, isAnonymous, content: content.trim(), images, zone: currentZone, timestamp: Date.now() });
+      setContent(''); setImages([]); setIsAnonymous(false);
+    } catch (err) { alert('發送失敗，請稍後重試。'); } finally { setIsPosting(false); }
+  };
+
+  const handleRemoveZone = async (zoneName, e) => {
+    e.stopPropagation();
+    if (zoneName === '世界') return;
+    const newZones = joinedZones.filter(z => z !== zoneName);
+    await updateDoc(doc(db, 'appUsers', username), { joinedZones: newZones });
+    if (currentZone === zoneName) setCurrentZone('世界');
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50 relative">
+      <div className="bg-white border-b border-gray-200 px-3 py-2 flex items-center z-10 shadow-sm">
+        <div className="flex-1 flex space-x-2 overflow-x-auto no-scrollbar pr-4 whitespace-nowrap">
+          {joinedZones.map(zone => (
+            <div key={zone} onClick={() => setCurrentZone(zone)} className={`flex items-center px-4 py-1.5 rounded-full cursor-pointer transition-colors border font-bold text-sm flex-shrink-0 ${currentZone === zone ? 'bg-yellow-500 border-yellow-500 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+              <Hash size={14} className="mr-1 opacity-70" /> {zone}
+              {zone !== '世界' && <button onClick={(e) => handleRemoveZone(zone, e)} className="ml-2 bg-black/10 hover:bg-black/20 rounded-full p-0.5"><X size={12}/></button>}
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setShowZoneModal(true)} className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex-shrink-0 shadow-sm border border-gray-200"><Plus size={18} /></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 overflow-x-hidden">
+        {filteredPosts.map((post) => {
+          const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
+          const displayImages = post.images || [];
+          const isOwner = post.author === username || isAdminUser(username);
+          const isSaved = !!savedPostsMap[post.id];
+
+          return (
+            <SwipeableItem key={post.id} isOwner={isOwner} onEdit={() => onSwipeEdit(post.id, post.content, post.author)} onDelete={() => onSwipeDelete(post.id)}>
+              <div onClick={() => setSelectedPost(post)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex space-x-3 cursor-pointer hover:bg-yellow-50/50 transition-colors h-full">
+                <div className="flex-shrink-0 mt-1"><UserAvatar user={postUser} isAnonymous={post.isAnonymous} onClick={onUserClick} /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline justify-between mb-0.5">
+                    <span className="font-bold text-gray-900 hover:text-yellow-700 transition-colors flex items-center">
+                      {post.isAnonymous ? '匿名用戶' : postUser.displayName}
+                      {!post.isAnonymous && isAdminUser(post.author) && <ShieldCheck size={14} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+                    </span>
+                    <div className="flex items-center">
+                      {currentZone === '世界' && post.zone && post.zone !== '世界' && <span className="mr-2 text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md font-bold">#{post.zone}</span>}
+                      <span className="text-xs text-gray-400">{formatTime(post.timestamp)}</span>
+                    </div>
+                  </div>
+                  {!post.isAnonymous && postUser.signature && <div className="text-xs text-gray-500 italic mb-2 opacity-80 border-b border-gray-50 pb-1">"{postUser.signature}"</div>}
+                  {post.content && (
+                    <p className="text-gray-800 whitespace-pre-wrap break-words mt-1 line-clamp-4">
+                      {post.content}
+                      {post.isAdminEdited ? <span className="text-xs text-red-500 italic ml-1">(管理員已編輯)</span> : (post.isEdited && <span className="text-xs text-gray-400 italic ml-1">(已編輯)</span>)}
+                    </p>
+                  )}
+                  {displayImages.length > 0 && (
+                    <div className={`mt-3 grid gap-2 ${displayImages.length === 1 ? 'grid-cols-1 sm:w-2/3' : 'grid-cols-2 sm:w-3/4'}`}>
+                      {displayImages.slice(0, 4).map((img, idx) => (
+                        <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden border border-gray-200" onClick={(e) => onOpenLightbox(displayImages, idx, e)}><img src={img} className="w-full h-full object-cover" /></div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center space-x-4 mt-3 pt-3 border-t border-gray-50">
+                    <button onClick={(e) => { e.stopPropagation(); onSaveClick(post.id); }} className={`flex items-center space-x-1 text-sm font-bold ${isSaved ? 'text-blue-600' : 'text-gray-400 hover:text-blue-500'}`}>
+                      {isSaved ? <BookmarkCheck size={16}/> : <Bookmark size={16}/>} <span>{isSaved ? '已儲存' : '儲存'}</span>
+                    </button>
+                    <div className="flex items-center space-x-1 text-sm text-gray-400 font-bold"><MessageCircle size={16} /><span>留言</span></div>
+                  </div>
+                </div>
+              </div>
+            </SwipeableItem>
+          );
+        })}
+        {filteredPosts.length === 0 && <div className="text-center text-gray-400 mt-10 font-bold">這個分區目前沒有發言，搶頭香吧！</div>}
+      </div>
+
+      <div className="bg-white border-t p-3 sm:p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
+        {images.length > 0 && (
+          <div className="flex space-x-2 mb-3 overflow-x-auto pb-2 px-1">
+            {images.map((img, idx) => (
+              <div key={idx} className="relative flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20">
+                <img src={img} className="w-full h-full object-cover rounded-2xl border border-gray-200 shadow-sm" />
+                <button onClick={() => setImages(prev => prev.filter((_, i) => i !== idx))} className="absolute -top-2 -right-2 bg-gray-800 text-white rounded-full p-1 shadow-md"><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        <form onSubmit={handlePost} className="flex flex-col space-y-3">
+          <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder={`在 #${currentZone} 分享點什麼...`} disabled={isPosting} rows={1} className="w-full border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-yellow-400 outline-none bg-gray-50 focus:bg-white transition-all resize-none min-h-[50px]"/>
+          <div className="flex justify-between items-center">
+            <div className="flex space-x-2 sm:space-x-3 items-center">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-600 hover:text-yellow-600 bg-gray-100 rounded-2xl flex items-center transition-colors">
+                <ImagePlus size={18} />
+                <span className="text-[10px] sm:text-xs font-bold ml-1.5 hidden sm:inline">(上限4張)</span>
+              </button>
+              <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" />
+              <button type="button" onClick={() => setIsAnonymous(!isAnonymous)} className={`flex items-center space-x-1.5 text-sm px-3 py-2 rounded-2xl font-bold transition-all whitespace-nowrap ${isAnonymous ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                {isAnonymous ? <EyeOff size={16} /> : <Eye size={16} />} <span className="hidden sm:inline">{isAnonymous ? '匿名發佈' : '公開發佈'}</span>
+              </button>
+            </div>
+            <button type="submit" disabled={(content.trim() === '' && images.length === 0) || isPosting} className="bg-yellow-500 text-white px-5 py-2 rounded-2xl hover:bg-yellow-600 font-bold shadow-sm flex items-center whitespace-nowrap">
+              {isPosting ? '處理中...' : <><Send size={16} className="sm:mr-2" /> <span className="hidden sm:inline">發送</span></>}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {showZoneModal && (
+        <ZoneManagerModal username={username} joinedZones={joinedZones} allZones={allZones} onClose={() => setShowZoneModal(false)}
+          onJoin={async (zoneName) => {
+            await updateDoc(doc(db, 'appUsers', username), { joinedZones: [...joinedZones, zoneName] });
+            setCurrentZone(zoneName); setShowZoneModal(false);
+          }}
+          onCreate={async (zoneName) => {
+            await addDoc(collection(db, 'zones'), { name: zoneName, createdBy: username, createdAt: Date.now() });
+            await updateDoc(doc(db, 'appUsers', username), { joinedZones: [...joinedZones, zoneName] });
+            setCurrentZone(zoneName); setShowZoneModal(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ZoneManagerModal({ username, joinedZones, allZones, onClose, onJoin, onCreate }) {
+  const [query, setQuery] = useState('');
+  
+  // 優化：當搜尋框為空時，只顯示已加入的分區；有輸入時，才顯示搜尋結果
+  const displayZones = query.trim() === '' 
+    ? allZones.filter(z => joinedZones.includes(z.name))
+    : allZones.filter(z => z.name.toLowerCase().includes(query.trim().toLowerCase()));
+
+  const exactMatch = allZones.some(z => z.name.toLowerCase() === query.trim().toLowerCase());
+  
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl w-full max-w-md p-6 relative shadow-2xl flex flex-col max-h-[80vh] animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200"><X size={20} /></button>
+        <h2 className="text-xl font-bold mb-4 flex items-center"><Hash className="mr-2 text-yellow-500"/> 探索分區</h2>
+        <div className="relative mb-4">
+          <Search size={18} className="absolute left-3 top-3 text-gray-400" />
+          <input type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="搜尋或建立分區名稱..." className="w-full pl-10 pr-4 py-3 bg-gray-100 border-transparent focus:bg-white focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 rounded-2xl outline-none font-bold" />
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {query.trim() === '' && <div className="text-sm font-bold text-gray-400 mb-2 px-1">已加入的分區</div>}
+          
+          {query.trim() !== '' && !exactMatch && (
+            <button onClick={() => onCreate(query.trim())} className="w-full bg-yellow-50 border border-yellow-200 p-4 rounded-2xl flex items-center justify-between text-left hover:bg-yellow-100 transition-colors mb-2">
+              <span className="font-bold text-yellow-800">建立新區塊「{query.trim()}」</span><Plus size={20} className="text-yellow-600" />
+            </button>
+          )}
+
+          {displayZones.map(z => {
+            const isJoined = joinedZones.includes(z.name);
+            return (
+              <div key={z.id} className="p-4 rounded-2xl border border-gray-100 flex items-center justify-between bg-gray-50">
+                <span className="font-bold text-gray-800 flex items-center"><Hash size={16} className="mr-1 text-gray-400"/>{z.name}</span>
+                {isJoined ? <span className="text-xs font-bold text-gray-400 px-3 py-1 bg-gray-200 rounded-full">已加入</span> : <button onClick={() => onJoin(z.name)} className="text-sm font-bold bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-1.5 rounded-full">加入</button>}
+              </div>
+            );
+          })}
+          {displayZones.length === 0 && query.trim() !== '' && <div className="text-center text-gray-400 mt-10 text-sm font-bold">沒有找到相關分區，建立一個吧！</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 4. 收藏總覽頁面
+// ==========================================
+function SavedView({ username, usersMap, fbUser, posts, savedPostsMap, userFolders, onOpenLightbox, onUserClick, onUnsave, onSwipeEditFolder, onSwipeDeleteFolder, blockedUsers }) {
+  const [activeFolder, setActiveFolder] = useState(null);
+  const [selectedPost, setSelectedPost] = useState(null);
+
+  if (selectedPost) {
+    return <PostDetailView post={selectedPost} onBack={() => setSelectedPost(null)} fbUser={fbUser} username={username} usersMap={usersMap} onOpenLightbox={onOpenLightbox} savedPostsMap={savedPostsMap} onSaveClick={(id)=>{}} onUserClick={onUserClick} onSwipeEdit={()=>{}} onSwipeDelete={()=>{}} blockedUsers={blockedUsers} />;
+  }
+
+  if (activeFolder) {
+    const folderPostIds = Object.keys(savedPostsMap).filter(id => savedPostsMap[id].folderName === activeFolder);
+    const folderPosts = posts.filter(p => folderPostIds.includes(p.id));
+
+    return (
+      <div className="flex flex-col h-full bg-slate-50">
+        <div className="bg-white border-b px-4 py-3 sticky top-0 z-10 flex items-center shadow-sm">
+          <button onClick={() => setActiveFolder(null)} className="mr-3 p-1.5 bg-gray-100 hover:bg-gray-200 rounded-full"><ChevronLeft size={20}/></button>
+          <h3 className="font-bold text-blue-800 flex items-center"><Folder className="mr-2 text-blue-500" size={20}/> {activeFolder}</h3>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4">
+          {folderPosts.length === 0 ? <div className="text-center text-gray-400 mt-20 font-bold">這個收藏夾是空的。</div> : (
+            folderPosts.map(post => {
+              const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
+              return (
+                <div key={post.id} onClick={() => setSelectedPost(post)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex space-x-3 cursor-pointer hover:bg-blue-50 relative">
+                  <div className="flex-shrink-0 mt-1"><UserAvatar user={postUser} isAnonymous={post.isAnonymous} onClick={onUserClick} /></div>
+                  <div className="flex-1 min-w-0 pr-8">
+                    <span className="font-bold text-gray-900 flex items-center">
+                      {post.isAnonymous ? '匿名用戶' : postUser.displayName}
+                      {!post.isAnonymous && isAdminUser(post.author) && <ShieldCheck size={14} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+                    </span>
+                    {post.content && <p className="text-gray-800 whitespace-pre-wrap mt-1 line-clamp-3">{post.content}</p>}
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); onUnsave(post.id); }} className="absolute bottom-4 right-4 text-blue-500 hover:text-red-500 bg-white p-1.5 rounded-full shadow-sm"><BookmarkCheck size={18} /></button>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50 overflow-x-hidden">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
+        {userFolders.map(folder => {
+          const count = Object.values(savedPostsMap).filter(data => data.folderName === folder).length;
+          const isDefault = folder === '預設收藏夾';
+
+          const FolderItem = () => (
+            <div onClick={() => setActiveFolder(folder)} className="bg-white border border-gray-200 hover:border-blue-300 hover:shadow-md rounded-2xl p-4 sm:p-5 flex items-center justify-between cursor-pointer transition-all w-full">
+              <div className="flex items-center">
+                <Folder size={28} className="text-blue-400 mr-4" />
+                <span className="font-bold text-gray-800 text-lg truncate max-w-[150px] sm:max-w-[200px]">{folder}</span>
+              </div>
+              <span className="text-sm text-gray-500 font-bold bg-gray-50 border border-gray-100 px-3 py-1.5 rounded-2xl flex items-center">{count} 篇文章 <ChevronRight size={16} className="ml-1 text-gray-400"/></span>
+            </div>
+          );
+
+          if (isDefault) return <FolderItem key={folder} />;
+          return <SwipeableItem key={folder} isOwner={true} onEdit={() => onSwipeEditFolder(folder)} onDelete={() => onSwipeDeleteFolder(folder)}><FolderItem /></SwipeableItem>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 5. 文章詳情與精準嵌套留言區
+// ==========================================
+function PostDetailView({ post, onBack, fbUser, username, usersMap, onOpenLightbox, savedPostsMap, onSaveClick, onUserClick, onSwipeEdit, onSwipeDelete, blockedUsers }) {
+  const [allComments, setAllComments] = useState([]);
+  const [newComment, setNewComment] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
+  const [isCommenting, setIsCommenting] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null); 
+  const commentsEndRef = useRef(null);
+
+  const [editTarget, setEditTarget] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  useEffect(() => {
+    if (!fbUser) return;
+    const unsubscribe = onSnapshot(collection(db, 'comments'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAllComments(data.filter(c => c.postId === post.id && !blockedUsers.includes(c.author)).sort((a, b) => a.timestamp - b.timestamp));
+    }, err => console.error(err));
+    return () => unsubscribe();
+  }, [fbUser, post.id, blockedUsers]);
+
+  const handleCommentSubmit = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim() || !fbUser || isCommenting) return;
+    setIsCommenting(true);
+    try {
+      await addDoc(collection(db, 'comments'), {
+        postId: post.id, author: username, isAnonymous, content: newComment.trim(), parentId: replyingTo ? replyingTo.id : null, timestamp: Date.now()
+      });
+      setNewComment(''); setReplyingTo(null);
+      setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 300);
+    } catch (err) { alert('留言失敗，請稍後再試。'); } finally { setIsCommenting(false); }
+  };
+
+  const handleGlobalEdit = async (e) => {
+    e.preventDefault();
+    const isAdminEdited = editTarget.author !== username;
+    const updateData = { content: e.target.content.value, isEdited: true };
+    if (isAdminEdited) updateData.isAdminEdited = true;
+    else updateData.isAdminEdited = false;
+    await updateDoc(doc(db, 'comments', editTarget.id), updateData);
+    setEditTarget(null);
+  };
+
+  const handleGlobalDelete = async () => {
+    await deleteDoc(doc(db, 'comments', deleteTarget));
+    setDeleteTarget(null);
+  };
+
+  const renderComments = (parentId = null, depth = 0) => {
+    const currentLevelComments = allComments.filter(c => c.parentId === parentId);
+    if (currentLevelComments.length === 0) return null;
+
+    return currentLevelComments.map(comment => {
+      const cUser = usersMap[comment.author] || { id: comment.author, displayName: comment.author };
+      const isNested = depth > 0;
+      const isOwner = comment.author === username || isAdminUser(username);
+      
+      return (
+        <div key={comment.id} className={isNested ? "ml-6 sm:ml-10 mt-3 border-l-2 border-gray-100 pl-3 sm:pl-4" : "mt-3"}>
+          <SwipeableItem isOwner={isOwner} onEdit={() => setEditTarget({id: comment.id, content: comment.content, author: comment.author})} onDelete={() => setDeleteTarget(comment.id)} bgClass={isNested ? "bg-white" : "bg-gray-50"} roundedClass="rounded-2xl border border-gray-100">
+            <div className={`p-3 sm:p-4 h-full flex flex-col ${isNested ? 'bg-white' : 'bg-gray-50'}`}>
+              <div className="flex space-x-2 sm:space-x-3 flex-1">
+                <div className="flex-shrink-0"><UserAvatar user={cUser} isAnonymous={comment.isAnonymous} size={isNested ? "w-6 h-6" : "w-8 h-8"} textClass="text-xs" onClick={onUserClick} /></div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline space-x-2">
+                    <span className="font-bold text-sm text-gray-900 cursor-pointer hover:underline flex items-center" onClick={(e) => { if(!comment.isAnonymous) { e.stopPropagation(); onUserClick(cUser.id); }}}>
+                      {comment.isAnonymous ? '匿名用戶' : cUser.displayName}
+                      {!comment.isAnonymous && isAdminUser(comment.author) && <ShieldCheck size={14} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+                    </span>
+                    <span className="text-[10px] text-gray-400">{formatTime(comment.timestamp)}</span>
+                  </div>
+                  <p className="text-gray-700 text-sm mt-0.5 whitespace-pre-wrap break-words">
+                    {comment.content} 
+                    {comment.isAdminEdited ? <span className="text-xs text-red-500 italic ml-1">(管理員已編輯)</span> : (comment.isEdited && <span className="text-xs text-gray-400 italic ml-1">(已編輯)</span>)}
+                  </p>
+                  <button onClick={() => setReplyingTo({ id: comment.id, authorName: comment.isAnonymous ? '匿名用戶' : cUser.displayName })} className="text-xs text-gray-400 hover:text-yellow-600 font-bold mt-1.5 flex items-center transition-colors"><CornerDownRight size={12} className="mr-1" /> 回覆</button>
+                </div>
+              </div>
+            </div>
+          </SwipeableItem>
+          {renderComments(comment.id, depth + 1)}
+        </div>
+      );
+    });
+  };
+
+  const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
+  const displayImages = post.images || [];
+  const isSaved = !!savedPostsMap[post.id];
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50 relative overflow-x-hidden">
+      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center sticky top-0 z-10 shadow-sm">
+        <button onClick={onBack} className="mr-3 p-1.5 bg-gray-100 hover:bg-yellow-100 rounded-full text-gray-600"><ChevronLeft size={20} /></button>
+        <h3 className="font-bold text-gray-800 text-lg">文章詳情</h3>
+      </div>
+
+      <div className="flex-1 overflow-y-auto pb-28">
+        <div className="bg-white p-4 sm:p-6 shadow-sm mb-2">
+          <div className="flex space-x-3">
+            <div className="flex-shrink-0 mt-1"><UserAvatar user={postUser} isAnonymous={post.isAnonymous} size="w-12 h-12" onClick={onUserClick} /></div>
+            <div className="flex-1 min-w-0">
+              <div className="flex flex-col mb-2">
+                <span className="font-bold text-gray-900 text-lg cursor-pointer hover:underline flex items-center" onClick={(e) => { if(!post.isAnonymous){ e.stopPropagation(); onUserClick(postUser.id); }}}>
+                  {post.isAnonymous ? '匿名用戶' : postUser.displayName}
+                  {!post.isAnonymous && isAdminUser(post.author) && <ShieldCheck size={18} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+                </span>
+                <span className="text-xs text-gray-400">{formatTime(post.timestamp)}</span>
+              </div>
+              {!post.isAnonymous && postUser.signature && <div className="text-sm text-gray-500 italic mb-3 opacity-80 border-b border-gray-50 pb-2">"{postUser.signature}"</div>}
+              {post.content && <p className="text-gray-800 whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+                {post.content}
+                {post.isAdminEdited ? <span className="text-xs text-red-500 italic ml-1">(管理員已編輯)</span> : (post.isEdited && <span className="text-xs text-gray-400 italic ml-1">(已編輯)</span>)}
+              </p>}
+              {displayImages.length > 0 && (
+                <div className={`mt-4 grid gap-2 ${displayImages.length === 1 ? 'grid-cols-1 sm:w-3/4' : 'grid-cols-2'}`}>
+                  {displayImages.map((img, idx) => (
+                    <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden cursor-pointer" onClick={() => onOpenLightbox(displayImages, idx)}><img src={img} className="w-full h-full object-cover" /></div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center space-x-6 mt-5 pt-4 border-t border-gray-100">
+            <button onClick={() => onSaveClick(post.id)} className={`flex items-center space-x-1.5 font-bold transition-colors ${isSaved ? 'text-blue-600' : 'text-gray-500 hover:text-blue-500'}`}>
+              {isSaved ? <BookmarkCheck size={20}/> : <Bookmark size={20}/>} <span>{isSaved ? '已儲存' : '儲存'}</span>
+            </button>
+            <div className="flex items-center space-x-1.5 text-gray-500 font-bold"><MessageCircle size={20} /><span>{allComments.length} 則留言</span></div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 shadow-sm min-h-[50vh]">
+          <h4 className="font-bold text-gray-800 mb-4 flex items-center"><MessageCircle size={18} className="mr-2 text-yellow-500"/> 留言區</h4>
+          {allComments.length === 0 ? <div className="text-center text-gray-400 py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200 font-bold">成為第一個留言的人吧！</div> : <div className="space-y-1 pb-4">{renderComments(null)}<div ref={commentsEndRef} /></div>}
+        </div>
+      </div>
+
+      <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 sm:p-4 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)] z-20">
+        {replyingTo && (
+          <div className="flex justify-between items-center bg-gray-100 px-4 py-2 rounded-t-2xl text-sm font-bold text-gray-600 -mt-2 border-b border-gray-200">
+            <span>回覆給 {replyingTo.authorName}...</span><button onClick={() => setReplyingTo(null)} className="text-gray-400 hover:text-red-500"><X size={16} /></button>
+          </div>
+        )}
+        <form onSubmit={handleCommentSubmit} className={`flex items-center space-x-2 ${replyingTo ? 'pt-2' : ''}`}>
+          <button type="button" onClick={() => setIsAnonymous(!isAnonymous)} className={`p-2.5 rounded-full flex-shrink-0 transition-colors ${isAnonymous ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500'}`} title={isAnonymous?"匿名留言":"公開留言"}>
+            {isAnonymous ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+          <input type="text" value={newComment} onChange={e => setNewComment(e.target.value)} placeholder={isAnonymous ? "匿名留言..." : "留個言吧..."} disabled={isCommenting} className={`flex-1 bg-gray-100 border-transparent px-4 py-2.5 focus:bg-white focus:border-yellow-400 focus:ring-2 focus:ring-yellow-200 outline-none transition-all ${replyingTo ? 'rounded-b-2xl rounded-t-none' : 'rounded-full'}`}/>
+          <button type="submit" disabled={!newComment.trim() || isCommenting} className="bg-yellow-500 text-white w-11 h-11 rounded-full flex items-center justify-center hover:bg-yellow-600 disabled:opacity-50 flex-shrink-0"><Send size={18} className="ml-1" /></button>
+        </form>
+      </div>
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setDeleteTarget(null)}>
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <AlertCircle size={56} className="mx-auto text-red-500 mb-4" />
+            <h3 className="text-2xl font-bold mb-6 text-gray-800">是否確認刪除留言？</h3>
+            <div className="flex space-x-3">
+              <button onClick={() => setDeleteTarget(null)} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-2xl transition-colors text-base sm:text-lg">再想想</button>
+              <button onClick={handleGlobalDelete} className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3.5 rounded-2xl transition-colors text-base sm:text-lg shadow-md">確認刪除</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editTarget && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setEditTarget(null)}>
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <h3 className="text-2xl font-bold mb-6 text-gray-800 flex items-center"><Edit3 className="mr-3 text-blue-500"/>編輯留言</h3>
+            <form onSubmit={handleGlobalEdit}>
+              <textarea name="content" defaultValue={editTarget.content} rows={4} className="w-full border border-gray-300 rounded-2xl p-4 focus:ring-2 focus:ring-blue-400 outline-none resize-none mb-6 text-lg" />
+              <div className="flex space-x-3">
+                <button type="button" onClick={() => setEditTarget(null)} className="flex-1 bg-gray-100 font-bold py-3.5 rounded-2xl text-lg">取消</button>
+                <button type="submit" className="flex-1 bg-blue-500 text-white font-bold py-3.5 rounded-2xl text-lg shadow-md">儲存變更</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 6. 聊天區塊
+// ==========================================
+function ChatLayout({ username, usersMap, fbUser, activeChatUser, setActiveChatUser, onUserClick, onSwipeEdit, onSwipeDelete, pinnedUsers, blockedUsers }) {
+  const [messages, setMessages] = useState([]);
+  const [newMsg, setNewMsg] = useState('');
+  const msgEndRef = useRef(null);
+
+  const [myFriends, setMyFriends] = useState([]);
+
+  useEffect(() => {
+    if (!fbUser) return;
+    const unsub = onSnapshot(collection(db, 'friendships'), (snapshot) => {
+      const fs = snapshot.docs.map(d => d.data());
+      const friends = fs.filter(f => f.users && f.users.includes(username)).map(f => f.users.find(u => u !== username));
+      setMyFriends(friends);
+    }, err => console.error(err));
+    return () => unsub();
+  }, [fbUser, username]);
+
+  const visibleFriends = myFriends.filter(fId => !blockedUsers.includes(fId)).sort((a, b) => {
+    const aPinned = pinnedUsers.includes(a);
+    const bPinned = pinnedUsers.includes(b);
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    return 0;
+  });
+
+  useEffect(() => {
+    if (!fbUser || !activeChatUser) return;
+    const unsub = onSnapshot(collection(db, 'chatMessages'), (snapshot) => {
+      const allMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const chatId = [username, activeChatUser].sort().join('_');
+      setMessages(allMsgs.filter(m => m.chatId === chatId).sort((a, b) => a.timestamp - b.timestamp));
+      setTimeout(() => msgEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }, err => console.error(err));
+    return () => unsub();
+  }, [fbUser, activeChatUser, username]);
+
+  const handleSend = async (e) => {
+    e.preventDefault();
+    if (!newMsg.trim() || !activeChatUser) return;
+    const chatId = [username, activeChatUser].sort().join('_');
+    try {
+      await addDoc(collection(db, 'chatMessages'), { chatId, sender: username, text: newMsg.trim(), timestamp: Date.now(), isDeleted: false });
+      setNewMsg('');
+    } catch (err) {}
+  };
+
+  if (!activeChatUser) {
+    return (
+      <div className="flex flex-col h-full bg-slate-50">
+        <div className="bg-white border-b px-4 py-3 sticky top-0 z-10"><h3 className="font-bold text-green-800 flex items-center"><Users className="mr-2 text-green-500" size={20}/> 聯絡人</h3></div>
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-2">
+          {visibleFriends.length === 0 ? <div className="text-center text-gray-400 mt-20"><p className="font-bold">目前沒有聯絡人。</p></div> : visibleFriends.map(fId => {
+            const fUser = usersMap[fId] || { id: fId, displayName: fId };
+            return (
+              <div key={fId} onClick={() => setActiveChatUser(fId)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:bg-green-50 transition-colors">
+                <UserAvatar user={fUser} onClick={onUserClick} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center">
+                    <h4 className="font-bold text-gray-800 truncate">{fUser.displayName}</h4>
+                    {pinnedUsers.includes(fId) && <Pin size={14} className="ml-1.5 text-blue-500 flex-shrink-0" />}
+                  </div>
+                  {fUser.signature && <p className="text-xs text-gray-400 truncate mt-0.5">{fUser.signature}</p>}
+                </div>
+                <ChevronRight className="text-gray-300" size={20} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  const activeUserData = usersMap[activeChatUser] || { id: activeChatUser, displayName: activeChatUser };
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50 relative overflow-x-hidden">
+      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center min-w-0 pr-4">
+          <button onClick={() => setActiveChatUser(null)} className="mr-3 p-1.5 bg-gray-100 hover:bg-green-100 rounded-full flex-shrink-0"><ChevronLeft size={20} /></button>
+          <div className="flex items-center space-x-2 cursor-pointer min-w-0" onClick={() => onUserClick(activeChatUser)}>
+            <UserAvatar user={activeUserData} size="w-8 h-8" />
+            <h3 className="font-bold text-gray-800 text-lg hover:underline truncate flex items-center">
+              {activeUserData.displayName}
+              {isAdminUser(activeChatUser) && <ShieldCheck size={14} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+            </h3>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-1 pb-20 relative z-30">
+        {messages.map(msg => (
+          <ChatMessageBubble key={msg.id} msg={msg} username={username} formatTime={formatTime} onEdit={onSwipeEdit} onDelete={onSwipeDelete} />
+        ))}
+        <div ref={msgEndRef} />
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 sm:p-4 z-20 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+        <form onSubmit={handleSend} className="flex space-x-2">
+          <input type="text" value={newMsg} onChange={e => setNewMsg(e.target.value)} placeholder="輸入訊息..." className="flex-1 bg-gray-100 px-5 py-2.5 focus:bg-white focus:border-green-400 focus:ring-2 outline-none rounded-full"/>
+          <button type="submit" disabled={!newMsg.trim()} className="bg-green-500 text-white w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50"><Send size={18} className="ml-1" /></button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ChatMessageBubble({ msg, username, formatTime, onEdit, onDelete }) {
+  const isMe = msg.sender === username;
+  const isDeleted = msg.isDeleted;
+  const pressTimer = useRef(null);
+  const [showMenu, setShowMenu] = useState(false);
+
+  const startPress = () => {
+    if (!isMe || isDeleted) return;
+    pressTimer.current = setTimeout(() => setShowMenu(true), 500);
+  };
+  const clearPress = () => { if (pressTimer.current) clearTimeout(pressTimer.current); };
+
+  return (
+    <div className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'} relative mb-2`}>
+      <div
+        className="max-w-[85%] sm:max-w-[75%] inline-block relative"
+        onTouchStart={startPress} onTouchEnd={clearPress} onTouchMove={clearPress}
+        onMouseDown={startPress} onMouseUp={clearPress} onMouseLeave={clearPress}
+        onContextMenu={e => { if (isMe && !isDeleted) e.preventDefault(); }} 
+      >
+        {showMenu && (
+          <div className={`absolute bottom-full mb-2 ${isMe ? 'right-0' : 'left-0'} flex bg-gray-800 text-white rounded-2xl shadow-lg z-50 overflow-hidden animate-in fade-in zoom-in-95`}>
+            <button onClick={(e) => { e.stopPropagation(); onEdit(msg.id, msg.text, msg.sender); setShowMenu(false); }} className="px-4 py-2.5 hover:bg-gray-700 text-sm font-bold flex items-center"><Edit3 size={14} className="mr-1.5"/> 編輯</button>
+            <div className="w-px bg-gray-600 my-1"></div>
+            <button onClick={(e) => { e.stopPropagation(); onDelete(msg.id); setShowMenu(false); }} className="px-4 py-2.5 hover:bg-gray-700 text-red-400 text-sm font-bold flex items-center"><Trash2 size={14} className="mr-1.5"/> 刪除</button>
+          </div>
+        )}
+        <div className={`px-4 py-2.5 shadow-sm ${isMe ? (isDeleted ? 'bg-gray-300 text-gray-600' : 'bg-green-500 text-white') : (isDeleted ? 'bg-gray-200 text-gray-500 border border-gray-300' : 'bg-white border border-gray-200 text-gray-800')} ${isMe ? 'rounded-2xl rounded-br-sm' : 'rounded-2xl rounded-bl-sm'}`}>
+          {isDeleted ? <p className="italic text-sm sm:text-base">(此訊息已刪除)</p> : <p className="whitespace-pre-wrap break-words text-sm sm:text-base">{msg.text} {msg.isEdited && <span className="text-xs opacity-75 italic ml-1">(已編輯)</span>}</p>}
+          <span className={`text-[10px] block mt-1 ${isMe ? (isDeleted?'text-gray-500':'text-green-100 text-right') : 'text-gray-400'}`}>{formatTime(msg.timestamp).split(' ')[1]}</span>
+        </div>
+      </div>
+      {showMenu && <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} onTouchStart={() => setShowMenu(false)}></div>}
+    </div>
+  );
+}
+
+// ==========================================
+// 7. 勸世功能
+// ==========================================
+function WarningView({ username, usersMap, fbUser, onOpenLightbox, onUserClick, onSwipeEdit, onSwipeDelete, blockedUsers }) {
+  const [posts, setPosts] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  
+  useEffect(() => {
+    if (!fbUser) return;
+    const unsubscribe = onSnapshot(collection(db, 'warnings'), (snapshot) => {
+      setPosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.timestamp - a.timestamp));
+    }, err => console.error(err));
+    return () => unsubscribe();
+  }, [fbUser]);
+
+  const handleSaveNew = async (data) => {
+    setIsPosting(true);
+    try {
+      await addDoc(collection(db, 'warnings'), { author: username, ...data, timestamp: Date.now() });
+      setShowForm(false);
+    } catch (err) { alert('發送失敗'); } finally { setIsPosting(false); }
+  };
+
+  const filteredPosts = posts.filter(p => {
+    if (blockedUsers.includes(p.author)) return false;
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (p.targetName && p.targetName.toLowerCase().includes(q)) || (p.reason && p.reason.toLowerCase().includes(q)) || (p.item && p.item.toLowerCase().includes(q)) || (p.platform && p.platform.toLowerCase().includes(q));
+  });
+
+  return (
+    <div className="flex flex-col h-full bg-slate-50 relative overflow-x-hidden">
+      <div className="bg-white border-b px-4 py-3 z-10 sticky top-0 flex space-x-2 shadow-sm">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜尋爆黑對象或原因..." className="w-full pl-10 pr-4 py-2 bg-gray-100 border-transparent focus:bg-white focus:border-red-300 focus:ring-2 outline-none transition-all font-bold"/>
+        </div>
+        <button onClick={() => setShowForm(true)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-2xl font-bold flex items-center transition-colors whitespace-nowrap shadow-sm">
+          <Edit3 size={16} className="mr-1.5" /> <span className="hidden sm:inline">爆黑發文</span><span className="sm:hidden">發文</span>
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="fixed inset-0 z-[100] bg-slate-50 flex flex-col h-full overflow-hidden animate-in slide-in-from-bottom-2">
+          <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center shadow-sm flex-shrink-0">
+            <button onClick={() => setShowForm(false)} className="mr-3 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors">
+              <ChevronLeft size={24} />
+            </button>
+            <h3 className="font-bold text-gray-800 text-xl flex items-center"><ShieldAlert className="mr-2 text-red-500" size={24}/> 發表勸世文</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+            <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 sm:p-8 flex flex-col min-h-full">
+              <EditWarningForm initialData={{}} onCancel={() => setShowForm(false)} onSave={handleSaveNew} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+        {filteredPosts.map((post) => {
+          const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
+          const displayImages = post.evidenceImages || (post.evidenceImage ? [post.evidenceImage] : []);
+          const isOwner = post.author === username || isAdminUser(username);
+
+          return (
+            <SwipeableItem key={post.id} isOwner={isOwner} onEdit={() => onSwipeEdit(post.id, post.targetName, post.platform, post.item, post.reason, post.evidenceText, displayImages, post.author)} onDelete={() => onSwipeDelete(post.id)} roundedClass="rounded-2xl shadow-md border border-red-100">
+              <div className="bg-white h-full flex flex-col rounded-2xl overflow-hidden w-full">
+                <div className="bg-red-50 px-4 py-3 border-b border-red-100 flex justify-between items-center"><span className="font-bold text-red-900">爆黑對象：{post.targetName}</span><span className="text-xs text-gray-500">{formatTime(post.timestamp)}</span></div>
+                <div className="p-4 sm:p-5 space-y-4 flex-1">
+                  
+                  {(post.platform || post.item) && (
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                      <div className="bg-white p-3 rounded-2xl border border-red-100 shadow-sm">
+                        <span className="text-[10px] text-red-400 block font-bold uppercase tracking-wider mb-1">交易平台</span>
+                        <span className="text-sm font-bold text-gray-800">{post.platform || '未提供'}</span>
+                      </div>
+                      <div className="bg-white p-3 rounded-2xl border border-red-100 shadow-sm">
+                        <span className="text-[10px] text-red-400 block font-bold uppercase tracking-wider mb-1">交易物品</span>
+                        <span className="text-sm font-bold text-gray-800">{post.item || '未提供'}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-400 tracking-wider mb-1">原因</h4>
+                    <p className="text-gray-800 whitespace-pre-wrap">
+                      {post.reason} 
+                      {post.isAdminEdited ? <span className="text-xs text-red-500 italic ml-1">(管理員已編輯)</span> : (post.isEdited && <span className="text-xs text-gray-400 italic ml-1">(已編輯)</span>)}
+                    </p>
+                  </div>
+                  {(post.evidenceText || displayImages.length > 0) && (
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                      <h4 className="text-xs font-bold text-gray-400 tracking-wider mb-2">證據</h4>
+                      {post.evidenceText && <p className="text-gray-700 text-sm mb-3 whitespace-pre-wrap">{post.evidenceText}</p>}
+                      {displayImages.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          {displayImages.map((img, idx) => (
+                            <div key={idx} className="aspect-square rounded-2xl overflow-hidden cursor-pointer" onClick={() => onOpenLightbox(displayImages, idx)}><img src={img} className="w-full h-full object-cover" /></div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex justify-end text-xs text-gray-500 pt-3 border-t border-gray-100 space-x-2">
+                    <UserAvatar user={postUser} size="w-5 h-5" textClass="text-[10px]" onClick={onUserClick} />
+                    <span className="font-bold cursor-pointer hover:underline flex items-center" onClick={() => onUserClick(postUser.id)}>
+                      {postUser.displayName}
+                      {isAdminUser(post.author) && <ShieldCheck size={14} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </SwipeableItem>
+          );
+        })}
+        {filteredPosts.length === 0 && <div className="text-center text-gray-400 mt-10 font-bold">目前沒有相關勸世文。</div>}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 8. 附加 Modal (用戶資訊與個人編輯)
+// ==========================================
+function UserInfoModal({ targetUsername, username, usersMap, friendships, onClose, onGoChat, pinnedUsers, blockedUsers, onTogglePin, onToggleBlock }) {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const targetUser = usersMap[targetUsername] || { id: targetUsername, displayName: targetUsername };
+  
+  const [isFriend, setIsFriend] = useState(false);
+  useEffect(() => {
+    const chatId = [username, targetUsername].sort().join('_');
+    getDoc(doc(db, 'friendships', chatId)).then(snap => setIsFriend(snap.exists()));
+  }, [username, targetUsername]);
+
+  const handleAddFriend = async () => {
+    setIsProcessing(true);
+    const chatId = [username, targetUsername].sort().join('_');
+    await setDoc(doc(db, 'friendships', chatId), { users: [username, targetUsername], timestamp: Date.now() });
+    setIsFriend(true);
+    setIsProcessing(false);
+  };
+
+  const isBlocked = blockedUsers.includes(targetUsername);
+  const isPinned = pinnedUsers.includes(targetUsername);
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-3xl max-w-sm w-full p-6 relative shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-4 right-4 bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200 transition-colors"><X size={20} /></button>
+        
+        <div className="flex flex-col items-center mt-4">
+          <div className="w-24 h-24 mb-4"><UserAvatar user={targetUser} size="w-full h-full" textClass="text-3xl" /></div>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+            {targetUser.displayName}
+            {isAdminUser(targetUsername) && <ShieldCheck size={20} className="ml-1 text-blue-500 flex-shrink-0" title="管理員" />}
+          </h2>
+          <p className="text-sm text-gray-400 mt-1">@{targetUser.id}</p>
+          {targetUser.signature && <div className="bg-gray-50 px-4 py-3 rounded-2xl mt-4 text-gray-600 text-sm italic border border-gray-100 w-full text-center">"{targetUser.signature}"</div>}
+          
+          {username !== targetUsername && (
+            <div className="w-full mt-6 space-y-3">
+              {isBlocked ? (
+                <button onClick={() => onToggleBlock(targetUsername)} className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3.5 rounded-2xl shadow-sm transition-colors flex items-center justify-center">
+                  <UserPlus size={18} className="mr-2" /> 解除拉黑
+                </button>
+              ) : (
+                <>
+                  {isFriend ? (
+                    <button onClick={() => onGoChat(targetUsername)} className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-2xl shadow-md transition-colors flex items-center justify-center">
+                      <MessageSquareText size={18} className="mr-2" /> 發送訊息
+                    </button>
+                  ) : (
+                    <button onClick={handleAddFriend} disabled={isProcessing} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3.5 rounded-2xl shadow-md transition-colors disabled:opacity-50 flex items-center justify-center">
+                      <UserPlus size={18} className="mr-2" /> {isProcessing ? '加入中...' : '加為好友'}
+                    </button>
+                  )}
+                  <div className="flex space-x-3">
+                    <button onClick={() => onTogglePin(targetUsername)} className={`flex-1 font-bold py-3 rounded-2xl shadow-sm transition-colors flex items-center justify-center ${isPinned ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                      <Pin size={16} className="mr-1.5" /> {isPinned ? '取消釘選' : '釘選聊天'}
+                    </button>
+                    <button onClick={() => onToggleBlock(targetUsername)} className="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-3 rounded-2xl shadow-sm transition-colors flex items-center justify-center">
+                      <Ban size={16} className="mr-1.5" /> 拉黑封鎖
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileView({ username, userData, usersMap, onLogout, onClose }) {
+  const [displayName, setDisplayName] = useState(userData.displayName || username);
+  const [signature, setSignature] = useState(userData.signature || '');
+  const [avatarImage, setAvatarImage] = useState(userData.avatarImage || null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const avatarInputRef = useRef(null);
+
+  const blockedUsers = userData.blockedUsers || [];
+
+  const handleSave = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    const newName = displayName.trim();
+    if (!newName) return;
+    setIsSaving(true);
+    const isDuplicate = Object.values(usersMap).some(u => u.displayName === newName && u.id !== username);
+    if (isDuplicate) { setErrorMsg('此用戶名已被使用，請更改用戶名。'); setIsSaving(false); return; }
+    try {
+      await updateDoc(doc(db, 'appUsers', username), { displayName: newName, signature: signature.trim(), avatarImage });
+      onClose(); 
+    } catch (err) { setErrorMsg('儲存失敗'); setIsSaving(false); } 
+  };
+
+  const handleUnblock = async (targetId) => {
+    const newBlocked = blockedUsers.filter(id => id !== targetId);
+    await updateDoc(doc(db, 'appUsers', username), { blockedUsers: newBlocked });
+  };
+
+  return (
+    <div className="h-full bg-slate-50 overflow-y-auto p-4 sm:p-8 relative pt-16 sm:pt-20">
+      <button onClick={onClose} className="absolute top-4 sm:top-8 right-4 sm:right-8 bg-white p-2 rounded-full shadow-md text-gray-500 hover:bg-gray-100"><X size={24} /></button>
+      <div className="max-w-md mx-auto bg-white rounded-3xl shadow-xl border border-gray-100 p-6 sm:p-8 mt-4 mb-10">
+        <div className="flex flex-col items-center mb-8 relative">
+          <div className="relative group cursor-pointer" onClick={() => avatarInputRef.current?.click()}>
+            <div className={`w-28 h-28 rounded-full flex items-center justify-center text-white text-3xl font-bold shadow-md border-4 border-white ${!avatarImage ? getAvatarColor(displayName) : ''} overflow-hidden bg-gray-100`}>
+              {avatarImage ? <img src={avatarImage} className="w-full h-full object-cover" /> : displayName.charAt(0).toUpperCase()}
+            </div>
+            <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="text-white" size={24} /></div>
+          </div>
+          <input type="file" accept="image/*" ref={avatarInputRef} onChange={e => {if(e.target.files[0]) compressImage(e.target.files[0]).then(res => setAvatarImage(res))}} className="hidden" />
+          <h2 className="text-2xl font-bold mt-4 text-gray-800 flex items-center">
+            個人資訊設定
+            {isAdminUser(username) && <ShieldCheck size={24} className="ml-2 text-blue-500 flex-shrink-0" title="最高管理員" />}
+          </h2>
+        </div>
+        
+        {errorMsg && <div className="bg-red-50 text-red-600 font-bold p-3 rounded-2xl mb-4 text-center">{errorMsg}</div>}
+        
+        <form onSubmit={handleSave} className="space-y-5">
+          <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border rounded-2xl focus:ring-2 focus:ring-yellow-400 outline-none" placeholder="顯示名稱" disabled={isSaving} />
+          <textarea value={signature} onChange={e => setSignature(e.target.value)} rows="2" className="w-full px-4 py-3 bg-gray-50 border rounded-2xl focus:ring-2 focus:ring-yellow-400 outline-none resize-none" placeholder="簽名..." disabled={isSaving} />
+          <div className="pt-4 space-y-3">
+            <button type="submit" disabled={isSaving} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-3.5 rounded-2xl transition-colors disabled:opacity-50"><Save size={18} className="inline mr-2" /> {isSaving ? '儲存中...' : '儲存並返回'}</button>
+            <button type="button" onClick={onLogout} disabled={isSaving} className="w-full bg-red-50 text-red-600 font-bold py-3.5 rounded-2xl transition-colors hover:bg-red-100 disabled:opacity-50"><LogOut size={18} className="inline mr-2" /> 登出帳號</button>
+          </div>
+        </form>
+
+        {/* 黑名單管理區塊 */}
+        {blockedUsers.length > 0 && (
+          <div className="mt-8 pt-6 border-t border-gray-100">
+            <h3 className="text-sm font-bold text-gray-500 mb-3 flex items-center"><Ban size={16} className="mr-1.5"/> 黑名單管理</h3>
+            <div className="space-y-2">
+              {blockedUsers.map(bId => {
+                const bUser = usersMap[bId] || { displayName: bId };
+                return (
+                  <div key={bId} className="flex items-center justify-between bg-gray-50 p-3 rounded-2xl border border-gray-100">
+                    <span className="font-bold text-gray-700">{bUser.displayName}</span>
+                    <button type="button" onClick={() => handleUnblock(bId)} className="text-xs font-bold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-500 px-3 py-1.5 rounded-2xl transition-colors">解除封鎖</button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
