@@ -3,37 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>大雜燴</title>
+  <title>廣場與勸世 App</title>
   
-  <!-- PWA 與桌面圖標設定 -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="大雜燴">
-  <meta name="theme-color" content="#eab308">
+  <!-- 桌面與瀏覽器圖示設定 -->
+  <link rel="icon" href="IMG_3441.png">
+  <link rel="apple-touch-icon" href="IMG_3441.png">
   
-  <!-- 動態生成並注入 高畫質 SVG App 圖標與 Manifest -->
-  <script>
-    const svgIcon = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='112' fill='#eab308' /><path fill='#ffffff' d='M256,96c-88.4,0-160,64.5-160,144c0,45.8,24.4,86.3,61.9,112.9c-8.9,26.5-27,51.8-28.7,54.4 c-2.3,3.4-1.9,8,0.9,11.1c2.8,3.1,7.2,3.8,11,1.8c38.7-20.4,68.9-39.5,86.5-54.3c9.3,1.3,18.9,2,28.5,2c88.4,0,160-64.5,160-144 S344.4,96,256,96z' /><circle cx='180' cy='240' r='24' fill='#eab308' /><circle cx='256' cy='240' r='24' fill='#eab308' /><circle cx='332' cy='240' r='24' fill='#eab308' /></svg>`;
-    const iconDataUrl = "data:image/svg+xml;base64," + btoa(svgIcon);
-
-    const manifest = {
-      name: "大雜燴",
-      short_name: "大雜燴",
-      start_url: "./",
-      display: "standalone",
-      background_color: "#f8fafc",
-      theme_color: "#eab308",
-      icons: [{ src: iconDataUrl, sizes: "512x512", type: "image/svg+xml" }]
-    };
-
-    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
-    const manifestUrl = URL.createObjectURL(blob);
-
-    document.write(`<link rel="manifest" href="${manifestUrl}">`);
-    document.write(`<link rel="icon" href="${iconDataUrl}">`);
-    document.write(`<link rel="apple-touch-icon" href="${iconDataUrl}">`);
-  </script>
-
   <!-- 載入 Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -53,7 +28,7 @@
   <div id="root">
     <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; background-color:#fefce8; color:#ca8a04;">
       <div style="width: 40px; height: 40px; border-bottom: 4px solid #eab308; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;"></div>
-      <span style="font-weight:bold; letter-spacing: 2px;">大雜燴 載入中...</span>
+      <span style="font-weight:bold; letter-spacing: 2px;">系統載入中...</span>
       <style>@keyframes spin { 100% { transform: rotate(360deg); } }</style>
     </div>
   </div>
@@ -148,6 +123,7 @@
       });
     };
 
+    // 工具：時間格式化
     const formatTime = (timestamp) => {
       if (!timestamp) return '';
       return new Date(timestamp).toLocaleString('zh-TW', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -305,7 +281,7 @@
     }
 
     // ==========================================
-    // 共用元件：誇誇文獨立編輯表單
+    // 共用元件：誇誇文獨立編輯表單 (粉紅主題)
     // ==========================================
     function EditPraiseForm({ initialData, onCancel, onSave }) {
       const [targetName, setTargetName] = useState(initialData.targetName || '');
@@ -500,8 +476,8 @@
           <div className="max-w-sm w-full bg-white rounded-3xl shadow-lg p-8 sm:p-10 transition-all">
             <div className="text-center mb-8">
               <div className="bg-yellow-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-yellow-600 shadow-sm"><MessageSquare size={30} /></div>
-              <h2 className="text-2xl sm:text-3xl font-black text-gray-800">大雜燴</h2>
-              <p className="text-gray-500 mt-2 text-sm sm:text-base font-medium">登入以繼續使用大雜燴</p>
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-800">歡迎回來</h2>
+              <p className="text-gray-500 mt-2 text-sm sm:text-base font-medium">登入以繼續使用廣場與勸世系統</p>
             </div>
             {error && <div className="bg-red-50 text-red-600 p-3 rounded-2xl flex items-center mb-6 text-sm font-bold border border-red-100"><AlertCircle size={18} className="mr-2 flex-shrink-0" />{error}</div>}
             <form onSubmit={handleLogin} className="space-y-4">
@@ -626,7 +602,7 @@
 
       const visiblePosts = posts.filter(p => !blockedUsers.includes(p.author));
 
-      // 計算總未讀數
+      // 計算總未讀數 (排除被封鎖的使用者)
       const totalUnreadCount = allChatMessages.filter(m => m.sender !== username && !m.isRead && !blockedUsers.includes(m.sender)).length;
 
       const handleTogglePin = async (targetId) => {
@@ -707,7 +683,7 @@
           case 'praise': return '誇誇專區';
           case 'saved': return '收藏庫';
           case 'chat': return '私密聊天';
-          default: return '大雜燴';
+          default: return '首頁';
         }
       };
 
@@ -941,7 +917,7 @@
             <button onClick={() => setShowZoneModal(true)} className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex-shrink-0 shadow-sm border border-gray-200"><Plus size={18} /></button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 overflow-x-hidden pb-40 sm:pb-32">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-4 overflow-x-hidden pb-32">
             {filteredPosts.map((post) => {
               const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
               const displayImages = post.images || [];
@@ -1006,9 +982,9 @@
               <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder={`在 #${currentZone} 分享點什麼...`} disabled={isPosting} rows={1} className="w-full border border-gray-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-yellow-400 outline-none bg-gray-50 focus:bg-white transition-all resize-none min-h-[50px]"/>
               <div className="flex justify-between items-center">
                 <div className="flex space-x-2 sm:space-x-3 items-center">
-                  <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-600 hover:text-yellow-600 bg-gray-100 rounded-2xl flex items-center transition-colors">
-                    <ImagePlus size={20} />
-                    <span className="text-xs font-bold ml-1.5 text-gray-400 whitespace-nowrap block">(最多4張)</span>
+                  <button type="button" onClick={() => fileInputRef.current?.click()} className="p-2 sm:px-3 sm:py-2 text-gray-600 hover:text-yellow-600 bg-gray-100 rounded-2xl flex items-center transition-colors">
+                    <ImagePlus size={20} className="sm:mr-1.5" />
+                    <span className="text-[10px] sm:text-xs font-bold text-gray-400 whitespace-nowrap block">(最多4張)</span>
                   </button>
                   <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" />
                   <button type="button" onClick={() => setIsAnonymous(!isAnonymous)} className={`flex items-center space-x-1.5 text-sm px-3 py-2 rounded-2xl font-bold transition-all whitespace-nowrap ${isAnonymous ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600'}`}>
@@ -1050,7 +1026,7 @@
       
       return (
         <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-          <div className="bg-white rounded-3xl w-full max-w-md p-6 pb-10 sm:pb-6 relative shadow-2xl flex flex-col max-h-[80vh] animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 relative shadow-2xl flex flex-col max-h-[80vh] animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
             <button onClick={onClose} className="absolute top-4 right-4 bg-gray-100 p-2 rounded-full text-gray-500 hover:bg-gray-200"><X size={20} /></button>
             <h2 className="text-xl font-bold mb-4 flex items-center"><Hash className="mr-2 text-yellow-500"/> 探索分區</h2>
             <div className="relative mb-4">
@@ -1252,7 +1228,7 @@
             <h3 className="font-bold text-gray-800 text-lg">文章詳情</h3>
           </div>
 
-          <div className="flex-1 overflow-y-auto pb-32 sm:pb-28">
+          <div className="flex-1 overflow-y-auto pb-32">
             <div className="bg-white p-4 sm:p-6 shadow-sm mb-2">
               <div className="flex space-x-3">
                 <div className="flex-shrink-0 mt-1"><UserAvatar user={postUser} isAnonymous={post.isAnonymous} size="w-12 h-12" onClick={onUserClick} /></div>
@@ -1338,7 +1314,7 @@
     }
 
     // ==========================================
-    // 6. 聊天區塊 (新增聯絡人精確搜尋功能)
+    // 6. 聊天區塊
     // ==========================================
     function ChatLayout({ username, usersMap, fbUser, friendships, setFriendships, activeChatUser, setActiveChatUser, onUserClick, onSwipeEdit, onSwipeDelete, pinnedUsers, blockedUsers, allChatMessages }) {
       const [newMsg, setNewMsg] = useState('');
@@ -1347,18 +1323,15 @@
       const [searchResult, setSearchResult] = useState(null); 
       const msgEndRef = useRef(null);
 
-      const [myFriends, setMyFriends] = useState([]);
-
       useEffect(() => {
         if (!fbUser) return;
         const unsub = onSnapshot(collection(db, 'friendships'), (snapshot) => {
-          const fs = snapshot.docs.map(d => d.data());
-          const friends = fs.filter(f => f.users && f.users.includes(username)).map(f => f.users.find(u => u !== username));
-          setMyFriends(friends);
+          setFriendships(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
         }, err => console.error(err));
         return () => unsub();
-      }, [fbUser, username]);
+      }, [fbUser, setFriendships]);
 
+      const myFriends = friendships.filter(f => f.users && f.users.includes(username)).map(f => f.users.find(u => u !== username));
       const visibleFriends = myFriends.filter(fId => !blockedUsers.includes(fId)).sort((a, b) => {
         const aPinned = pinnedUsers.includes(a);
         const bPinned = pinnedUsers.includes(b);
@@ -1401,16 +1374,10 @@
       const handleSearch = (e) => {
         e.preventDefault();
         const q = searchQuery.trim();
-        if (!q) {
-          setSearchResult(null);
-          return;
-        }
+        if (!q) { setSearchResult(null); return; }
         const user = usersMap[q];
-        if (user) {
-          setSearchResult(user);
-        } else {
-          setSearchResult('not_found');
-        }
+        if (user) setSearchResult(user);
+        else setSearchResult('not_found');
       };
 
       if (!activeChatUser) {
@@ -1421,29 +1388,14 @@
 
         return (
           <div className="flex flex-col h-full bg-slate-50">
-            <div className="bg-white border-b px-4 py-3 sticky top-0 z-10">
-              <h3 className="font-bold text-green-800 flex items-center"><Users className="mr-2 text-green-500" size={20}/> 聯絡人</h3>
-            </div>
-
+            <div className="bg-white border-b px-4 py-3 sticky top-0 z-10"><h3 className="font-bold text-green-800 flex items-center"><Users className="mr-2 text-green-500" size={20}/> 聯絡人</h3></div>
             <div className="bg-white p-3 sm:p-4 border-b border-gray-100 shadow-sm z-10 flex-shrink-0">
                <form onSubmit={handleSearch} className="flex space-x-2 relative">
                   <Search size={18} className="absolute left-3 top-3 text-gray-400" />
-                  <input
-                     type="text"
-                     value={searchQuery}
-                     onChange={e => {
-                       setSearchQuery(e.target.value);
-                       if (e.target.value.trim() === '') setSearchResult(null);
-                     }}
-                     placeholder="輸入精確帳號搜尋好友..."
-                     className="flex-1 bg-gray-100 pl-10 pr-4 py-2.5 rounded-2xl focus:bg-white focus:ring-2 focus:ring-green-400 outline-none text-sm font-bold transition-all"
-                  />
-                  <button type="submit" className="bg-green-500 text-white px-4 py-2.5 rounded-2xl font-bold shadow-sm hover:bg-green-600 transition-colors whitespace-nowrap">
-                     搜尋
-                  </button>
+                  <input type="text" value={searchQuery} onChange={e => { setSearchQuery(e.target.value); if (e.target.value.trim() === '') setSearchResult(null); }} placeholder="輸入精確帳號搜尋好友..." className="flex-1 bg-gray-100 pl-10 pr-4 py-2.5 rounded-2xl focus:bg-white focus:ring-2 focus:ring-green-400 outline-none text-sm font-bold transition-all" />
+                  <button type="submit" className="bg-green-500 text-white px-4 py-2.5 rounded-2xl font-bold shadow-sm hover:bg-green-600 transition-colors whitespace-nowrap">搜尋</button>
                </form>
             </div>
-
             <div className="flex-1 overflow-y-auto p-3 sm:p-6 space-y-2 pb-10">
               {searchResult ? (
                 searchResult === 'not_found' ? (
@@ -1623,7 +1575,7 @@
                 <button onClick={() => setShowForm(false)} className="mr-3 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors"><ChevronLeft size={24} /></button>
                 <h3 className="font-bold text-gray-800 text-xl flex items-center"><ShieldAlert className="mr-2 text-red-500" size={24}/> 發表勸世文</h3>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-20">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                 <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 sm:p-8 flex flex-col min-h-full">
                   <EditWarningForm initialData={{}} onCancel={() => setShowForm(false)} onSave={handleSaveNew} />
                 </div>
@@ -1631,7 +1583,7 @@
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-32">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {filteredPosts.map((post) => {
               const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
               const displayImages = post.evidenceImages || (post.evidenceImage ? [post.evidenceImage] : []);
@@ -1695,7 +1647,7 @@
     }
 
     // ==========================================
-    // 8. 誇誇功能 (粉紅主題版)
+    // 8. 誇誇功能 (粉紅主題)
     // ==========================================
     function PraiseView({ username, usersMap, fbUser, onOpenLightbox, onUserClick, onSwipeEdit, onSwipeDelete, blockedUsers }) {
       const [posts, setPosts] = useState([]);
@@ -1744,7 +1696,7 @@
                 <button onClick={() => setShowForm(false)} className="mr-3 p-2 bg-gray-100 hover:bg-gray-200 rounded-full text-gray-600 transition-colors"><ChevronLeft size={24} /></button>
                 <h3 className="font-bold text-gray-800 text-xl flex items-center"><Heart className="mr-2 text-pink-500" size={24}/> 發表誇誇文</h3>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-20">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                 <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-6 sm:p-8 flex flex-col min-h-full">
                   <EditPraiseForm initialData={{}} onCancel={() => setShowForm(false)} onSave={handleSaveNew} />
                 </div>
@@ -1752,7 +1704,7 @@
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 pb-32">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {filteredPosts.map((post) => {
               const postUser = usersMap[post.author] || { id: post.author, displayName: post.author };
               const displayImages = post.evidenceImages || (post.evidenceImage ? [post.evidenceImage] : []);
@@ -1918,7 +1870,7 @@
       };
 
       return (
-        <div className="h-full bg-slate-50 overflow-y-auto p-4 sm:p-8 relative pt-16 sm:pt-20 pb-32">
+        <div className="h-full bg-slate-50 overflow-y-auto p-4 sm:p-8 relative pt-16 sm:pt-20">
           <button onClick={onClose} className="absolute top-4 sm:top-8 right-4 sm:right-8 bg-white p-2 rounded-full shadow-md text-gray-500 hover:bg-gray-100"><X size={24} /></button>
           <div className="max-w-md mx-auto bg-white rounded-3xl shadow-xl border border-gray-100 p-6 sm:p-8 mt-4 mb-10">
             <div className="flex flex-col items-center mb-8 relative">
@@ -1973,4 +1925,5 @@
   </script>
 </body>
 </html>
+
 
